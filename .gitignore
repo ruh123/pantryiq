@@ -1,0 +1,20 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Environment / secrets
+.env
+
+# Data (raw dumps + warehouse files) — never commit; datasets live under data/raw/
+data/
+*.duckdb
+*.duckdb.wal
+
+# IDE
+.idea/
+
+# macOS
+.DS_Store
