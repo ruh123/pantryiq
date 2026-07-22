@@ -29,7 +29,7 @@ Sources                     Bronze (Iceberg)        Resolution              Silv
 -------                     ----------------        ----------              --------------------------     -------
 RecipeNLG         --batch->  raw_recipes    \                                                          
 USDA FDC API      --api--->  raw_usda_foods   +--> Entity Resolution --> dbt models --> Gold tables --> AI Agent --> Streamlit UI
-Open Food Facts   --api--->  raw_off_products/     (parse/normalize/       (nutrition,     (verified      (structured  (chat +
+                                                   (parse/normalize/       (nutrition,     (verified      (structured  (chat +
                                                     block/score/route)      cost, tags,     rows)          retrieval +  trust
                                                                             trust_score)                   guardrail)   score)
 
@@ -62,7 +62,7 @@ These were chosen deliberately. Do not change them without an explicit new decis
 | LLM | **Anthropic Claude** | Reserved for **mid-confidence ER adjudication + final generation only**. Structured output / tool use. |
 | Recipe dataset | **RecipeNLG** | Full original ingredient lines *with* quantities + messy raw text (+ `NER` name column) — chosen to keep the ER metric honest and enable per-recipe nutrition/cost. **Switched from Food.com/Kaggle on 2026-07-20** after the readable export was confirmed to store ingredients as pre-cleaned names without quantities. ~2.2M recipes → sample ~15K for the subset phase. |
 | Nutrition source | **USDA FoodData Central API** | Canonical set = **Foundation + SR Legacy (~8k)**; **exclude Branded** (millions). Free key, rate-limited — paginate + backoff + cache; pull once. |
-| Products | **Open Food Facts** (sampled) | Third source; sampled ingest. |
+| Products | **Open Food Facts — DROPPED (2026-07-22)** | Removed after review: no downstream consumer. Re-add only with a concrete role + join key. |
 | Cost data | **Static curated reference table** | No live pricing (explicit non-goal); label it as a stand-in. |
 | Serving UI | **Streamlit** | Chat UI; surfaces verified numbers + `data_trust_score` inline. |
 | Deployment | **Docker → one managed cloud** (Cloud Run / Fly.io) | Deploy the **Streamlit app + a read-only Gold DuckDB file**. Batch pipeline, Airflow, and the Iceberg catalog run **locally** — do not host the whole lakehouse in the cloud. |
@@ -94,9 +94,9 @@ Mapped to the design doc's milestones, adjusted for subset-first. Each phase end
 - **DoD:** `make setup` (or equivalent) works from clean; CI lints; empty pipeline scaffold runs.
 
 **Phase 1 — Ingestion (~Week 1, on the ~15K subset)**
-- Stand up the Iceberg REST catalog + local warehouse. Write `bronze.raw_recipes` (RecipeNLG ~15K subset), `bronze.raw_usda_foods` (FDC pull), `bronze.raw_off_products` (OFF sample) via PyIceberg. Preserve raw payloads unmodified + `source` + `ingested_at` lineage. Log row counts. Confirm DuckDB can read all three back.
+- Stand up the Iceberg REST catalog + local warehouse. Write `bronze.raw_recipes` (RecipeNLG ~15K subset) and `bronze.raw_usda_foods` (FDC pull) via PyIceberg. Preserve raw payloads unmodified + `source` + `ingested_at` lineage. Log row counts. Confirm DuckDB can read both back. (Open Food Facts dropped — see §4.)
 - **First task (dataset resolved):** recipe source = RecipeNLG (§9 risk 1). Confirm its `ingredients` (raw lines) + `NER` (names) columns on a ~15K sample; note the absence of a servings field for Phase-3 nutrition.
-- **DoD:** three Bronze Iceberg tables populated with lineage; row counts logged; DuckDB round-trip read verified.
+- **DoD:** both Bronze Iceberg tables (recipes + USDA) populated with lineage; row counts logged; DuckDB round-trip read verified.
 
 **Phase 2 — Entity resolution (~Week 2, the core, on subset)**
 - Pipeline: **parse** (quantity/unit/ingredient) → **normalize** (lowercase, strip filler, singularize) → **block** (category/first-token) → **score** (Jaro-Winkler + local embeddings, top-k) → **route by confidence**: high → auto (`rule`/`fuzzy`); mid → **Claude adjudication** (present raw text + top-3, structured pick or "no match", method=`llm`); low → flag unresolved. Write `silver.ingredient_entity_map` with `match_method`, `confidence_score`, `reviewed_flag`.
