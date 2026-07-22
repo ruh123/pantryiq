@@ -13,7 +13,20 @@ import re
 import sys
 
 DEFAULT_PATH = "data/raw/recipenlg/full_dataset.csv"
-QTY = re.compile(r"^\s*(\d+\s*\d*/?\d*|\d+\.\d+|[¼½¾⅓⅔⅕⅖⅗⅘⅛⅜⅝⅞])")
+# Rough proxy for "does this ingredient line start with a quantity" — numeric,
+# fraction (incl. unicode), or a common number-word. Not a full parser: it still
+# counts brand-y "7 Up" as a quantity, but excludes the "2% milk"/"100%" false class.
+_FRAC = "¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞"
+QTY = re.compile(
+    r"^\s*("
+    r"\d+\s*\d*/\d+"  # 1/2, 2 1/2
+    r"|\d+\.\d+"  # 1.5
+    r"|\d++(?!\s*%)"  # 2, 12  (but not '2%'); possessive so it can't backtrack to '10'
+    rf"|[{_FRAC}]"  # unicode fractions
+    r"|(?:an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|half|dozen)\b"
+    r")",
+    re.IGNORECASE,
+)
 
 csv.field_size_limit(10_000_000)
 
@@ -36,13 +49,16 @@ def main():
 
     rows = ing_lines = ing_with_qty = ner_total = bad_ing = bad_ner = 0
     examples = []
-    with open(path, newline="", encoding="utf-8") as fh:
+    with open(path, newline="", encoding="utf-8", errors="replace") as fh:
         reader = csv.reader(fh)
         header = next(reader)
         for i, row in enumerate(reader):
             if i >= n:
                 break
             rows += 1
+            if len(row) < 7:
+                bad_ing += 1
+                continue
             ings = parse_list(row[2])
             ners = parse_list(row[6])
             if ings is None:

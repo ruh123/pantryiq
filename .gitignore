@@ -18,3 +18,10 @@ data/
 
 # macOS
 .DS_Store
+
+# Secrets — never commit tokens/keys/credentials (belt-and-braces beyond .env)
+*token*.txt
+*.pem
+*.key
+*.p12
+*credentials*.json

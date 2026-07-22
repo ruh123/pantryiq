@@ -23,8 +23,8 @@ Recipe recommendation systems built on LLMs alone produce plausible-sounding but
 ```
 Sources                Bronze                 Resolution            Silver/Gold                 Serving
 --------                ------                 ----------            -----------                 -------
-Recipe1M+/   --batch-->  raw_recipes   \                                                    
-Food.com                                 \                                                  
+RecipeNLG    --batch-->  raw_recipes   \                                                    
+                                         \                                                  
                                            +--> Entity Resolution --> canonical mapping --> dbt models --> Gold tables --> AI Agent --> Chat UI
 USDA FDC API --api-->    raw_usda_foods  /        (rules, fuzzy,        (silver.ingredient_    (nutrition,
                                                     LLM fallback)         entity_map)            cost, tags)

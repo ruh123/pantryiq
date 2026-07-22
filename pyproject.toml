@@ -3,7 +3,11 @@ name = "pantryiq"
 version = "0.0.0"
 description = "Verified recipe data platform with a data-grounded AI layer."
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "duckdb>=1.5.5",
+    "pyarrow>=25.0.0",
+    "pyiceberg[sql-sqlite]>=0.11.1",
+]
 
 # Runtime deps are added per phase (duckdb, dbt, pyiceberg, sentence-transformers,
 # anthropic, streamlit, airflow, great-expectations) — nothing speculative here.
@@ -15,9 +19,16 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "scripts"]
 testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pantryiq"]

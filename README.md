@@ -23,4 +23,15 @@ make test    # run tests
 make lint    # ruff check
 ```
 
-Datasets go under `data/raw/` (gitignored). Copy `.env.example` to `.env` and fill in keys.
+Copy `.env.example` to `.env` and fill in keys.
+
+## Data
+
+Datasets are gitignored (large). To reproduce Phase 1:
+
+- **RecipeNLG** (~2.2M recipes, ~2.3 GB) — download `full_dataset.csv` from
+  <https://recipenlg.cs.put.poznan.pl/> (accept the terms form), place it at
+  `data/raw/recipenlg/full_dataset.csv`, then sanity-check:
+  `uv run python scripts/inspect_recipenlg.py`.
+- **USDA FoodData Central** — free API key from
+  <https://fdc.nal.usda.gov/api-key-signup.html> → put in `.env` as `USDA_API_KEY`.
