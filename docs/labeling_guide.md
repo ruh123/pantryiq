@@ -9,6 +9,11 @@ is written down first. Precision/recall computed against inconsistent labels is 
 **These labels are the ground truth for the headline metric.** The model is measured against
 your judgment, never the other way around.
 
+> ⚠️ **Provenance (2026-07-24):** 282 of the 300 labels were ultimately produced by an LLM
+> annotator following this guide, not by a human — hand-labeling proved to cost 8–12 hours.
+> Every label records its `labeler`. This materially weakens the headline claim and changes
+> what can be evaluated; see `docs/er_metrics.md` before quoting any metric.
+
 ---
 
 ## The rules

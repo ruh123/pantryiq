@@ -53,10 +53,17 @@ def test_head_noun_index_is_generic_first():
 
 
 def _candidate_table(rows):
+    """rows = (text, fdc_id, generator, rank); the generator sets that membership flag.
+
+    Membership is per generator, not "whichever found it first" — recording a single winning
+    method makes per-generator recall unmeasurable.
+    """
     return pa.table({
         "normalized_text": [r[0] for r in rows],
         "fdc_id": [r[1] for r in rows],
-        "method": [r[2] for r in rows],
+        "from_embed_search": [r[2] == "embed_search" for r in rows],
+        "from_embed_desc": [r[2] == "embed_desc" for r in rows],
+        "from_token_head": [r[2] == "token_head" for r in rows],
         "rank": [r[3] for r in rows],
     })
 
@@ -91,7 +98,7 @@ def test_recall_at_k_repacks_ranks_when_filtering_by_method():
     labels = {"egg": "gold"}
 
     assert recall_at_k(candidates, labels, k=5) == 0.0  # not in the overall top 5
-    assert recall_at_k(candidates, labels, k=5, method="token_head") == 1.0
+    assert recall_at_k(candidates, labels, k=5, method="from_token_head") == 1.0
 
 
 def test_recall_at_k_excludes_the_null_class():
@@ -110,8 +117,8 @@ def test_recall_at_k_attributes_per_method():
     labels = {"egg": "200"}
 
     assert recall_at_k(candidates, labels, k=5) == 1.0
-    assert recall_at_k(candidates, labels, k=5, method="token_head") == 1.0
-    assert recall_at_k(candidates, labels, k=5, method="embed_search") == 0.0
+    assert recall_at_k(candidates, labels, k=5, method="from_token_head") == 1.0
+    assert recall_at_k(candidates, labels, k=5, method="from_embed_search") == 0.0
 
 
 def test_recall_at_k_missing_string_is_a_miss():

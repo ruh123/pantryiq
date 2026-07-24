@@ -127,23 +127,25 @@ def build_candidates(db_path: Path | str = DEFAULT_DB, k: int = TOP_K,
     head_index = build_head_noun_index(canonical_names)
 
     out: dict[str, list] = {key: [] for key in
-                            ("normalized_text", "fdc_id", "method", "cosine_search",
-                             "cosine_desc", "rank")}
+                            ("normalized_text", "fdc_id", "from_embed_search", "from_embed_desc",
+                             "from_token_head", "cosine_search", "cosine_desc", "rank")}
     for query_row, string in enumerate(strings):
-        found: dict[int, str] = {}
-        for candidate_row in search_idx[query_row]:
-            found.setdefault(int(candidate_row), "embed_search")
-        for candidate_row in desc_idx[query_row]:
-            found.setdefault(int(candidate_row), "embed_desc")
+        # MEMBERSHIP per generator, not "whichever found it first". Recording a single winning
+        # method makes the A/B unmeasurable: whichever generator is consulted first claims
+        # nearly every candidate, and the others appear to contribute ~nothing.
+        by_search = {int(row) for row in search_idx[query_row]}
+        by_desc = {int(row) for row in desc_idx[query_row]}
         head_noun = string.split()[-1] if string.split() else ""
-        for candidate_row in head_index.get(head_noun, []):
-            found.setdefault(candidate_row, "token_head")
+        by_token = set(head_index.get(head_noun, []))
 
-        rows = sorted(found, key=lambda row: -float(query_vectors[query_row] @ search_vectors[row]))
+        union = by_search | by_desc | by_token
+        rows = sorted(union, key=lambda row: -float(query_vectors[query_row] @ search_vectors[row]))
         for rank, candidate_row in enumerate(rows):
             out["normalized_text"].append(string)
             out["fdc_id"].append(fdc_ids[candidate_row])
-            out["method"].append(found[candidate_row])
+            out["from_embed_search"].append(candidate_row in by_search)
+            out["from_embed_desc"].append(candidate_row in by_desc)
+            out["from_token_head"].append(candidate_row in by_token)
             out["cosine_search"].append(
                 float(query_vectors[query_row] @ search_vectors[candidate_row]))
             out["cosine_desc"].append(
@@ -158,32 +160,31 @@ def recall_at_k(candidates: pa.Table, labels: dict[str, str], k: int,
 
     This is the ceiling on everything downstream: a scorer cannot pick what was never shown.
     `labels` maps normalized_text -> gold fdc_id; strings labeled `no-match` belong to the
-    null class and are excluded from the denominator. Pass `method` to attribute recall to
-    one generator.
+    null class and are excluded from the denominator. Pass `method` — one of the
+    `from_embed_search` / `from_embed_desc` / `from_token_head` membership columns — to
+    attribute recall to a single generator.
 
     "Top-k" means the first k rows *after* any method filter, not rank < k. The two agree for
     the unfiltered table (ranks are dense), and the filtered reading is the meaningful one:
     it answers "if this generator ran alone and returned k, would the answer be in there?"
     """
-    by_string: dict[str, list[tuple[int, str, str]]] = {}
-    for text, fdc_id, candidate_method, rank in zip(
+    flags = candidates.column(method).to_pylist() if method else None
+    by_string: dict[str, list[tuple[int, str]]] = {}
+    for index, (text, fdc_id, rank) in enumerate(zip(
         candidates.column("normalized_text").to_pylist(),
         candidates.column("fdc_id").to_pylist(),
-        candidates.column("method").to_pylist(),
         candidates.column("rank").to_pylist(),
-    ):
-        by_string.setdefault(text, []).append((rank, fdc_id, candidate_method))
+    )):
+        if flags is not None and not flags[index]:
+            continue
+        by_string.setdefault(text, []).append((rank, fdc_id))
 
     hits = considered = 0
     for text, gold in labels.items():
         if gold == "no-match":
             continue
         considered += 1
-        rows = by_string.get(text, [])
-        if method is not None:
-            rows = [r for r in rows if r[2] == method]
-        rows = sorted(rows)[:k]
-        if any(fdc_id == gold for _, fdc_id, _ in rows):
+        if any(fdc_id == gold for _, fdc_id in sorted(by_string.get(text, []))[:k]):
             hits += 1
     return hits / considered if considered else 0.0
 
@@ -206,14 +207,14 @@ def main() -> None:
     candidates = build_candidates()
     write_candidates(candidates)
     strings = candidates.column("normalized_text").to_pylist()
-    methods = candidates.column("method").to_pylist()
     distinct = len(set(strings))
     print(f"silver.ingredient_candidates: {candidates.num_rows:,} rows "
           f"for {distinct:,} strings ({candidates.num_rows / distinct:.1f} candidates each)")
-    for method in ("embed_search", "embed_desc", "token_head"):
-        count = methods.count(method)
-        print(f"  first found by {method:13}: {count:7,} ({100 * count / len(methods):.1f}%)")
-    print("\nrecall@k is measured after labeling (2.3b) — a ceiling needs ground truth.")
+    for column in ("from_embed_search", "from_embed_desc", "from_token_head"):
+        count = sum(candidates.column(column).to_pylist())
+        print(f"  contributed by {column[5:]:13}: {count:7,} "
+              f"({100 * count / candidates.num_rows:.1f}% of rows; generators overlap)")
+    print("\nrecall@k needs labels — see scripts/er_metrics or docs/er_metrics.md.")
 
 
 if __name__ == "__main__":
