@@ -8,6 +8,7 @@ from pantryiq.er.labeling import (
     NO_MATCH,
     append_label,
     candidates_for,
+    display_score,
     load_labels,
     load_sample,
     make_label,
@@ -26,7 +27,7 @@ def con(tmp_path):
     )
     connection.execute(
         "CREATE TABLE silver.ingredient_candidates (normalized_text VARCHAR, fdc_id VARCHAR, "
-        "rank INTEGER)"
+        "rank INTEGER, cosine_search DOUBLE, cosine_desc DOUBLE)"
     )
     connection.execute("CREATE TABLE silver.distinct_ingredient_strings (normalized_text VARCHAR)")
     for fdc_id, description, kcal, flag in [
@@ -37,9 +38,10 @@ def con(tmp_path):
     ]:
         connection.execute("INSERT INTO silver.usda_foods VALUES (?,?,?,?)",
                            [fdc_id, description, kcal, flag])
-    for rank, fdc_id in enumerate(["2", "1", "3"]):
-        connection.execute("INSERT INTO silver.ingredient_candidates VALUES ('egg',?,?)",
-                           [fdc_id, rank])
+    # Generation order puts Eggnog first — exactly the cosine failure the display must undo.
+    for rank, (fdc_id, cosine) in enumerate([("2", 0.77), ("1", 0.70), ("3", 0.66)]):
+        connection.execute("INSERT INTO silver.ingredient_candidates VALUES ('egg',?,?,?,?)",
+                           [fdc_id, rank, cosine, cosine])
     connection.execute("INSERT INTO silver.distinct_ingredient_strings VALUES ('egg')")
     return connection
 
@@ -62,26 +64,55 @@ def gold(tmp_path):
     return out
 
 
-def test_candidates_come_back_in_rank_order(con):
+def test_display_puts_the_base_form_first(con):
+    """Raw cosine ranked Eggnog above the actual egg; the display order must not."""
     rows = candidates_for(con, "egg")
-    assert [r[1] for r in rows] == ["Eggnog", "Egg, whole, raw, fresh", "Babyfood, egg yolk"]
-    assert rows[0][4] == 0  # rank travels with the row so labels can record it
+    assert rows[0][1] == "Egg, whole, raw, fresh"
+    assert rows[0][4] == 1  # the GENERATION rank travels with the row, not the display position
+
+
+def test_display_deduplicates_descriptions(con):
+    """94 descriptions exist twice (Foundation + SR Legacy); duplicates waste display slots."""
+    con.execute("INSERT INTO silver.usda_foods VALUES ('9','Eggnog',88.0,false)")
+    con.execute("INSERT INTO silver.ingredient_candidates VALUES ('egg','9',3,0.77,0.77)")
+
+    descriptions = [row[1] for row in candidates_for(con, "egg")]
+    assert descriptions.count("Eggnog") == 1
+
+
+def test_display_score_prefers_plain_modifiers_over_facet_count():
+    """The ordinary entry often has MORE facets, so facet count must not be penalized."""
+    plain = display_score("egg", 0.7, "Egg, whole, raw, fresh", False, True)
+    variant = display_score("egg", 0.7, "Egg, white, dried", False, True)
+    assert plain > variant
+
+
+def test_display_score_prefers_the_leading_facet():
+    """USDA leads with the food itself, so 'Egg, ...' should beat a higher-cosine 'Eggnog'."""
+    assert display_score("egg", 0.70, "Egg, raw", False, True) > \
+        display_score("egg", 0.75, "Eggnog", False, True)
+
+
+def test_display_score_penalizes_deprioritized():
+    assert display_score("onion", 0.7, "Onions, raw", False, True) > \
+        display_score("onion", 0.7, "Onions, raw", True, True)
 
 
 def test_search_finds_foods_outside_the_candidate_list(con):
     """Without this, recall@k would be 100% by construction."""
     results = search_foods(con, "cheddar")
-    assert [r[1] for r in results] == ["Cheese, cheddar"]
+    assert results[0][1] == "Cheese, cheddar"
 
 
-def test_search_requires_all_tokens(con):
-    assert search_foods(con, "egg whole") == [("1", "Egg, whole, raw, fresh", 143.0, False, None)]
-    assert search_foods(con, "egg nonexistent") == []
+def test_search_falls_back_to_fuzzy_on_a_near_miss(con):
+    """The labeler has to guess USDA's vocabulary; a strict substring search punishes typos."""
+    results = search_foods(con, "chedder")  # misspelled
+    assert "Cheese, cheddar" in [r[1] for r in results]
 
 
-def test_search_is_generic_first(con):
-    """Shortest description first, matching the base-form labeling convention."""
-    assert [r[1] for r in search_foods(con, "egg")][0] == "Eggnog"
+def test_search_prefers_exact_substring_matches_first(con):
+    results = search_foods(con, "egg whole")
+    assert results[0][1] == "Egg, whole, raw, fresh"
 
 
 def test_search_ignores_blank_query(con):

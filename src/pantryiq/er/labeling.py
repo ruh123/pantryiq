@@ -31,6 +31,15 @@ DISPLAY_K = 25
 SEARCH_RESULTS = 20
 NO_MATCH = "no-match"
 
+# Facet words that describe the ordinary form of a food rather than naming a variant.
+# "Egg, whole, raw, fresh" is all-plain; "Egg, white, dried" is not.
+PLAIN_MODIFIERS = {
+    "raw", "whole", "fresh", "fluid", "regular", "plain", "unprepared", "all-purpose",
+    "enriched", "bleached", "unbleached", "table", "salted", "granulated", "cultured",
+    "full", "fat", "with", "without", "and", "commercial", "stick", "light", "large",
+    "or", "added", "solids", "unsalted",
+}
+
 
 def load_sample(out_dir: Path | str = DEFAULT_OUT) -> list[dict]:
     path = Path(out_dir) / "sample.jsonl"
@@ -85,42 +94,127 @@ def append_label(path: Path | str, record: dict) -> None:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def make_label(normalized_text: str, fdc_id: str, via: str, rank: int | None = None) -> dict:
+def make_label(normalized_text: str, fdc_id: str, via: str, rank: int | None = None,
+               display_rank: int | None = None) -> dict:
+    """One judgment.
+
+    `candidate_rank` is the generation rank (what recall@k is measured over); `display_rank`
+    is where it sat on screen. Keeping both lets us report how often the top suggestion was
+    simply accepted — a direct read on how much the display anchored the labeler.
+    """
     return {
         "normalized_text": normalized_text,
         "fdc_id": fdc_id,
         "via": via,
         "candidate_rank": rank,
+        "display_rank": display_rank,
         "labeled_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
 
 
+def display_score(query: str, cosine: float, description: str, deprioritized: bool,
+                  has_kcal: bool) -> float:
+    """Order candidates for a human, encoding the guide's base-form convention.
+
+    Presentation only — the recall@k ceiling is measured over the stored generation ranks, so
+    this cannot move any metric. It exists because raw cosine buries the right answer: it put
+    `Eggnog` above `Egg, whole, raw, fresh` and `DENNY'S, onion rings` above `Onions, raw`.
+
+    The load-bearing signals are the FIRST facet matching the head noun (USDA leads with the
+    food itself, so "Egg, ..." beats "Eggnog") and every remaining facet being a plain
+    modifier. Facet *count* is deliberately not penalized — it proved actively misleading,
+    since the ordinary entry often carries more qualifiers ("Egg, whole, raw, fresh") than a
+    rare variant ("Egg, white, dried").
+    """
+    words = query.split()
+    head = words[-1] if words else ""
+    facets = [part.strip().lower() for part in description.split(",") if part.strip()]
+    first = facets[0] if facets else ""
+    tokens = set(" ".join(facets).replace("-", " ").split())
+
+    score = cosine
+    if first in (head, head + "s"):
+        score += 0.30
+    elif head in first.split():
+        score += 0.18
+    if head in tokens:
+        score += 0.08
+    if words and all(word in tokens for word in words):
+        score += 0.10
+    qualifiers = [t for facet in facets[1:] for t in facet.replace("-", " ").split()]
+    if qualifiers and all(t in PLAIN_MODIFIERS or t.isdigit() for t in qualifiers):
+        score += 0.28
+    if deprioritized:
+        score -= 0.15
+    if has_kcal:
+        score += 0.03
+    return score
+
+
 def candidates_for(con, normalized_text: str, limit: int = DISPLAY_K) -> list[tuple]:
-    return con.execute(
+    """Top candidates for display: deduplicated by description, base-form-first."""
+    rows = con.execute(
         """
-        SELECT f.fdc_id, f.description_raw, f.kcal_per_100g, f.is_deprioritized, c.rank
+        SELECT f.fdc_id, f.description_raw, f.kcal_per_100g, f.is_deprioritized, c.rank,
+               GREATEST(c.cosine_search, c.cosine_desc)
         FROM silver.ingredient_candidates c
         JOIN silver.usda_foods f USING (fdc_id)
         WHERE c.normalized_text = ?
         ORDER BY c.rank
-        LIMIT ?
         """,
-        [normalized_text, limit],
+        [normalized_text],
     ).fetchall()
+
+    # 94 descriptions exist twice (Foundation + SR Legacy); showing both wastes a slot.
+    seen: set[str] = set()
+    unique = [row for row in rows if not (row[1] in seen or seen.add(row[1]))]
+    unique.sort(
+        key=lambda row: -display_score(normalized_text, row[5], row[1], row[3], row[2] is not None)
+    )
+    return [row[:5] for row in unique[:limit]]
 
 
 def search_foods(con, query: str, limit: int = SEARCH_RESULTS) -> list[tuple]:
-    """Substring search over every USDA food, shortest (most generic) description first."""
+    """Search every USDA food: exact substring matches first, then fuzzy.
+
+    Fuzzy matters because the labeler has to guess USDA's vocabulary — their word for sugar is
+    `Sugars, granulated`, and a strict substring search punishes every near miss.
+    """
     tokens = [token for token in query.lower().split() if token]
     if not tokens:
         return []
     where = " AND ".join(["lower(description_raw) LIKE ?"] * len(tokens))
-    return con.execute(
-        f"SELECT fdc_id, description_raw, kcal_per_100g, is_deprioritized, NULL "  # noqa: S608
+    exact = con.execute(
+        "SELECT fdc_id, description_raw, kcal_per_100g, is_deprioritized, NULL "  # noqa: S608
         f"FROM silver.usda_foods WHERE {where} "
         "ORDER BY length(description_raw), description_raw LIMIT ?",
         [f"%{token}%" for token in tokens] + [limit],
     ).fetchall()
+    if len(exact) >= limit:
+        return exact
+
+    from rapidfuzz import fuzz, process
+
+    everything = con.execute(
+        "SELECT fdc_id, description_raw, kcal_per_100g, is_deprioritized FROM silver.usda_foods"
+    ).fetchall()
+    found = {row[0] for row in exact}
+    # token_set_ratio, compared against the alternatives on real queries: WRatio rewards long
+    # descriptions ("chedder cheese" -> pasteurized process cheese food), partial_ratio matches
+    # substrings anywhere ("brown suger" -> instant oatmeal). token_set handles word-order and
+    # subset matches, which is what a half-remembered USDA name actually looks like.
+    ranked = process.extract(
+        query, {i: row[1] for i, row in enumerate(everything)},
+        scorer=fuzz.token_set_ratio, limit=limit * 3,
+    )
+    for _, _, index in ranked:
+        row = everything[index]
+        if row[0] not in found:
+            found.add(row[0])
+            exact.append((*row, None))
+        if len(exact) >= limit:
+            break
+    return exact
 
 
 def _show(rows: list[tuple]) -> None:
@@ -186,7 +280,8 @@ def main() -> None:
                     continue
                 if choice.isdigit() and int(choice) < len(rows):
                     chosen = rows[int(choice)]
-                    append_label(labels_path, make_label(text, chosen[0], "candidate", chosen[4]))
+                    append_label(labels_path, make_label(
+                        text, chosen[0], "candidate", chosen[4], int(choice)))
                     break
                 print("  ?")
             print()
