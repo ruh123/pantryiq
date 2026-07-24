@@ -12,7 +12,20 @@ ingredient data, with a deterministic check on every numeric claim it makes.
 
 **Phase 1 complete** — Bronze landed and DuckDB-verified: `bronze.raw_recipes` (15,000
 RecipeNLG rows, the subset-first sample) and `bronze.raw_usda_foods` (8,187 USDA Foundation +
-SR Legacy foods). Phase 2 (Silver + entity resolution — the headline) in progress.
+SR Legacy foods).
+
+**Phase 2 in progress** (Silver + entity resolution — the headline). Increments 2.0–2.4 done:
+112,463 ingredient lines parsed to 9,324 distinct strings, 8,187 canonical USDA entities, a
+300-row gold set, and candidate generation measured at **recall@50 = 90.5%**. Next: scoring
+and calibrated routing (2.5).
+
+> ⚠️ 282 of the 300 gold labels were produced by an LLM annotator rather than a human. This
+> changes what the metrics mean — read [`docs/er_metrics.md`](docs/er_metrics.md) before
+> quoting any number.
+
+- Session log + decisions: [`docs/session_2026-07-24.md`](docs/session_2026-07-24.md)
+- Measured results: [`docs/er_metrics.md`](docs/er_metrics.md)
+- Labeling convention: [`docs/labeling_guide.md`](docs/labeling_guide.md)
 
 ## Setup
 
