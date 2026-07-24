@@ -5,6 +5,10 @@ Pulls the paginated /foods/list endpoint (abridged records already carry the mac
 need), preserving each food unmodified as a JSON `raw_payload` plus lineage. Idempotent:
 a re-run overwrites the table. The API key is read from `.env` (USDA_API_KEY).
 
+**Single-source assumption:** the unfiltered `overwrite` replaces the WHOLE table, which is
+correct only because `usda_fdc` is the sole source of `bronze.raw_usda_foods`. If a second
+nutrition source is ever added, switch to `overwrite(data, EqualTo("source", SOURCE))`.
+
 Run directly to land the canonical set:  uv run python -m pantryiq.ingestion.usda
 """
 from __future__ import annotations
@@ -62,10 +66,15 @@ def _get_page(api_key: str, data_type: str, page: int, page_size: int, sleep) ->
     for attempt in range(MAX_RETRIES):
         resp = requests.get(f"{BASE_URL}/foods/list", params=params, timeout=30)
         if resp.status_code == 200:
-            return resp.json()
+            body = resp.json()
+            if not isinstance(body, list):
+                raise RuntimeError(f"unexpected /foods/list payload (not a list): {body!r:.200}")
+            return body
         if resp.status_code in RETRYABLE:
             retry_after = resp.headers.get("Retry-After", "")
-            wait = int(retry_after) if retry_after.isdigit() else min(2**attempt, 30)
+            # Cap Retry-After: the API has served absurd values, and an uncapped sleep stalls
+            # the whole pull (999999s ~= 11 days).
+            wait = min(int(retry_after), 60) if retry_after.isdigit() else min(2**attempt, 30)
             sleep(wait)
             continue
         resp.raise_for_status()
@@ -131,6 +140,11 @@ def ingest_usda_foods(
     if foods is None:
         foods = fetch_foods(api_key or _require_api_key(), page_size=page_size, max_pages=max_pages)
     data = build_bronze_table(foods)
+    if data.num_rows == 0:
+        raise ValueError(
+            f"refusing to write {TABLE} with 0 rows — an empty overwrite would atomically "
+            "wipe the table (check the API key, dataType, and rate-limit responses)"
+        )
     try:
         catalog.create_namespace(NAMESPACE)
     except NamespaceAlreadyExistsError:

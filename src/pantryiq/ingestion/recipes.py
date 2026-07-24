@@ -4,6 +4,11 @@ Bronze preserves each source row unmodified as a JSON `raw_payload` plus lineage
 (recipe_id, source, source_url, ingested_at). Cleaning/typing happens later in Silver.
 Idempotent: a re-run overwrites the table rather than appending, so row counts stay stable.
 
+**Single-source assumption:** the unfiltered `overwrite` replaces the WHOLE table, which is
+correct only because `recipenlg` is the sole source of `bronze.raw_recipes`. If a second
+recipe source is ever added, switch to `overwrite(data, EqualTo("source", SOURCE))` or the
+new source will delete this one.
+
 Run directly to land the subset:  uv run python -m pantryiq.ingestion.recipes
 """
 from __future__ import annotations
@@ -83,6 +88,11 @@ def ingest_recipes(
     except NamespaceAlreadyExistsError:
         pass
     data = build_bronze_table(csv_path, limit)
+    if data.num_rows == 0:
+        raise ValueError(
+            f"refusing to write {TABLE} with 0 rows — an empty overwrite would atomically "
+            f"wipe the table (check that {csv_path} is the RecipeNLG export)"
+        )
     try:
         table = catalog.load_table(TABLE)
         table.overwrite(data)

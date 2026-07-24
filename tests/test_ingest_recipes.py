@@ -1,6 +1,8 @@
 """Ingestion test: RecipeNLG → bronze.raw_recipes, lineage + idempotency (no dataset)."""
 import csv
 
+import pytest
+
 from pantryiq.ingestion.recipes import SCHEMA, ingest_recipes
 from pantryiq.lakehouse.catalog import get_catalog, scan_with_duckdb
 
@@ -39,6 +41,22 @@ def test_ingest_recipes_lineage_and_idempotent(tmp_path):
     # DuckDB reads the same Bronze table
     assert scan_with_duckdb(catalog.load_table("bronze.raw_recipes")).num_rows == 7
 
-    # Re-run must not duplicate rows.
+    # Re-run with DIFFERENT input: the new data must WIN (5 rows), not append (12) or no-op (7).
+    _write_fixture(csv_path, n=5)
     ingest_recipes(catalog, csv_path=csv_path, limit=None)
+    assert catalog.load_table("bronze.raw_recipes").scan().to_arrow().num_rows == 5
+
+
+def test_empty_csv_refuses_to_overwrite(tmp_path):
+    """A header-only (or wrong-path-but-valid) CSV must never wipe a populated Bronze table."""
+    csv_path = tmp_path / "recipes.csv"
+    _write_fixture(csv_path, n=7)
+    catalog = get_catalog(tmp_path / "lakehouse")
+    ingest_recipes(catalog, csv_path=csv_path, limit=None)
+
+    _write_fixture(csv_path, n=0)
+    with pytest.raises(ValueError, match="0 rows"):
+        ingest_recipes(catalog, csv_path=csv_path, limit=None)
+
+    # The previous snapshot survives untouched.
     assert catalog.load_table("bronze.raw_recipes").scan().to_arrow().num_rows == 7
