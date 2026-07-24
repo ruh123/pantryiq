@@ -65,7 +65,7 @@ UNITS = {
     "bunch": "bunch", "bunches": "bunch", "stalk": "stalk", "stalks": "stalk",
     "sprig": "sprig", "sprigs": "sprig", "piece": "piece", "pieces": "piece",
     "dash": "dash", "dashes": "dash", "pinch": "pinch", "pinches": "pinch",
-    "drop": "drop", "drops": "drop",
+    "drop": "drop", "drops": "drop", "doz": "dozen", "dozen": "dozen",
 }
 
 # Size qualifiers sit between the quantity and the unit ("1 large jar Cheez Whiz") or
@@ -94,6 +94,9 @@ _SINGULAR_EXCEPTIONS = {
     "molasses", "asparagus", "hummus", "couscous", "swiss", "watercress", "cress",
     "bass", "grits",
 }
+# -ves plurals need the f back ("celery leaves" -> "celery leaf", not "leave"), but the
+# generic rule would break "olives"/"chives", so the irregulars are listed explicitly.
+_IRREGULAR_PLURALS = {"leaves": "leaf", "halves": "half", "loaves": "loaf", "knives": "knife"}
 
 _FRAC_CHARS = "".join(_FRACTIONS)
 _NUM = rf"\d+\s+\d+/\d+|\d+/\d+|\d+\.\d+|\.\d+|\d+\s*[{_FRAC_CHARS}]|[{_FRAC_CHARS}]|\d+"
@@ -187,6 +190,8 @@ def parse_line(line: str) -> ParsedLine:
 
 def singularize(word: str) -> str:
     """Crude, dependency-free singularization of the final noun."""
+    if word in _IRREGULAR_PLURALS:
+        return _IRREGULAR_PLURALS[word]
     if word in _SINGULAR_EXCEPTIONS or len(word) <= 3:
         return word
     if word.endswith("ies"):

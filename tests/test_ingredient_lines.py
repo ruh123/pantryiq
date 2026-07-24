@@ -94,6 +94,15 @@ def test_singularize_handles_common_shapes():
     assert singularize("eggs") == "egg"
     assert singularize("molasses") == "molasses"  # exception, not "molass"
     assert singularize("asparagus") == "asparagus"
+    assert singularize("leaves") == "leaf"  # irregular, not "leave"
+    assert singularize("halves") == "half"
+    assert singularize("olives") == "olive"  # ...but the generic -s rule still applies
+
+
+def test_dozen_is_a_unit():
+    parsed = parse_line("3 doz. oysters, cleaned and shucked")
+    assert (parsed.quantity, parsed.unit) == (3.0, "dozen")
+    assert normalize(parsed.ingredient_text) == "oyster"
 
 
 def test_stratum_thresholds():

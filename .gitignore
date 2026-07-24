@@ -9,9 +9,12 @@ __pycache__/
 .env
 
 # Data (raw dumps + warehouse files) — never commit; datasets live under data/raw/
-data/
+data/*
 *.duckdb
 *.duckdb.wal
+# ...except the hand-labeled gold set: it is irreplaceable human judgment and the
+# ground truth behind the headline precision/recall metric, so it IS version-controlled.
+!data/gold_labels/
 
 # IDE
 .idea/
