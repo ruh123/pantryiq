@@ -323,7 +323,8 @@ def main() -> None:
     print(f"  with quantity : {with_qty:,} ({100 * with_qty / total:.1f}%)")
     print(f"  with unit     : {with_unit:,} ({100 * with_unit / total:.1f}%)")
     print(f"  non-empty text: {non_empty:,} ({100 * non_empty / total:.1f}%)")
-    print(f"silver.distinct_ingredient_strings: {len(set(normals)):,} distinct")
+    # The table excludes the empty string, so the reported count must too.
+    print(f"silver.distinct_ingredient_strings: {len({n for n in normals if n}):,} distinct")
 
 
 if __name__ == "__main__":
