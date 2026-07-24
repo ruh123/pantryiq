@@ -32,6 +32,42 @@ SAMPLE_PER_STRATUM = {"head": 167, "mid": 167, "tail": 166}
 TUNE_PER_STRATUM = {"head": 100, "mid": 100, "tail": 100}  # remainder -> frozen holdout
 EXAMPLES_PER_STRING = 3
 
+# --- Reduction to 300 (2026-07-24) ---------------------------------------------------------
+# 500 proved to cost 8-12 hours of human judgment, not the ~90 minutes originally estimated.
+# The reduced set is taken as a PREFIX of the existing per-stratum draw rather than re-drawn:
+# the 500 was already shuffled within each stratum, so a prefix is still a random subsample,
+# and it preserves labels already collected. Re-drawing with a smaller size would not.
+REDUCED_PER_STRATUM = {"head": 100, "mid": 100, "tail": 100}
+# Splits are interleaved (every 3rd row) rather than assigned by position, so that stopping
+# early still yields both tune and holdout in proportion instead of all tune and no holdout.
+HOLDOUT_EVERY = 3
+# Share of rows presented with candidates SCRAMBLED and unranked, to measure how much the
+# ranked display anchors the labeler. Without a control, an accept rate cannot be told apart
+# from agreement.
+CONTROL_SHARE = 15
+
+
+def is_control(normalized_text: str, share: int = CONTROL_SHARE) -> bool:
+    """Deterministic per-string control assignment — stable across re-runs."""
+    digest = hashlib.sha256(f"control:{normalized_text}".encode()).hexdigest()
+    return int(digest[:8], 16) % 100 < share
+
+
+def reduce_sample(rows: list[dict], per_stratum: dict[str, int] | None = None) -> list[dict]:
+    """Cut the sample to `per_stratum` per stratum, re-splitting and tagging controls."""
+    per_stratum = per_stratum or REDUCED_PER_STRATUM
+    reduced: list[dict] = []
+    for stratum, size in per_stratum.items():
+        in_stratum = [row for row in rows if row["frequency_stratum"] == stratum][:size]
+        if len(in_stratum) < size:
+            raise ValueError(f"stratum {stratum!r} has {len(in_stratum)} rows, need {size}")
+        for index, row in enumerate(in_stratum):
+            row = dict(row)
+            row["split"] = "holdout" if index % HOLDOUT_EVERY == 2 else "tune"
+            row["control"] = is_control(row["normalized_text"])
+            reduced.append(row)
+    return reduced
+
 
 def draw_sample(db_path: Path | str = DEFAULT_DB, seed: int = SEED) -> list[dict]:
     """Return the seeded stratified sample, each row tagged with its split."""
@@ -93,17 +129,34 @@ def write_sample(rows: list[dict], out_dir: Path | str = DEFAULT_OUT) -> Path:
         for row in rows:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
+    per_stratum: dict[str, int] = {}
+    for row in rows:
+        per_stratum[row["frequency_stratum"]] = per_stratum.get(row["frequency_stratum"], 0) + 1
     manifest = {
         "seed": SEED,
         "total": len(rows),
-        "per_stratum": SAMPLE_PER_STRATUM,
+        "per_stratum": per_stratum,
         "tune": sum(r["split"] == "tune" for r in rows),
         "holdout": sum(r["split"] == "holdout" for r in rows),
+        "control": sum(r.get("control", False) for r in rows),
         "holdout_fingerprint": holdout_fingerprint(rows),
         "labeling_guide": "docs/labeling_guide.md",
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     return sample_path
+
+
+def reduce_existing(out_dir: Path | str = DEFAULT_OUT) -> list[dict]:
+    """Rewrite an existing sample.jsonl as the reduced set, preserving row identity."""
+    out_dir = Path(out_dir)
+    existing = [
+        json.loads(line)
+        for line in (out_dir / "sample.jsonl").read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    reduced = reduce_sample(existing)
+    write_sample(reduced, out_dir)
+    return reduced
 
 
 def main() -> None:

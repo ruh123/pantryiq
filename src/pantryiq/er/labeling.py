@@ -19,6 +19,7 @@ Run:  uv run python -m pantryiq.er.labeling
 from __future__ import annotations
 
 import json
+import random
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from pantryiq.er.gold import DEFAULT_OUT, holdout_fingerprint
 
 DEFAULT_DB = Path("data/pantryiq.duckdb")
 DISPLAY_K = 25
+SHORTLIST = 5  # shown by default; `m` expands to DISPLAY_K
 SEARCH_RESULTS = 20
 NO_MATCH = "no-match"
 
@@ -95,12 +97,15 @@ def append_label(path: Path | str, record: dict) -> None:
 
 
 def make_label(normalized_text: str, fdc_id: str, via: str, rank: int | None = None,
-               display_rank: int | None = None) -> dict:
+               display_rank: int | None = None, presentation: str = "ranked",
+               suggested_fdc_id: str | None = None) -> dict:
     """One judgment.
 
     `candidate_rank` is the generation rank (what recall@k is measured over); `display_rank`
-    is where it sat on screen. Keeping both lets us report how often the top suggestion was
-    simply accepted — a direct read on how much the display anchored the labeler.
+    is where it sat on screen. `presentation` records whether the candidates were ranked or
+    scrambled, and `suggested_fdc_id` what the model would have proposed — together these let
+    us report agreement separately for ranked and unranked presentation, which is the only way
+    to tell genuine agreement from reflex acceptance of the top row.
     """
     return {
         "normalized_text": normalized_text,
@@ -108,6 +113,8 @@ def make_label(normalized_text: str, fdc_id: str, via: str, rank: int | None = N
         "via": via,
         "candidate_rank": rank,
         "display_rank": display_rank,
+        "presentation": presentation,
+        "suggested_fdc_id": suggested_fdc_id,
         "labeled_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
 
@@ -133,7 +140,8 @@ def display_score(query: str, cosine: float, description: str, deprioritized: bo
     tokens = set(" ".join(facets).replace("-", " ").split())
 
     score = cosine
-    if first in (head, head + "s"):
+    leads = first in (head, head + "s")
+    if leads:
         score += 0.30
     elif head in first.split():
         score += 0.18
@@ -141,13 +149,19 @@ def display_score(query: str, cosine: float, description: str, deprioritized: bo
         score += 0.08
     if words and all(word in tokens for word in words):
         score += 0.10
-    qualifiers = [t for facet in facets[1:] for t in facet.replace("-", " ").split()]
-    if qualifiers and all(t in PLAIN_MODIFIERS or t.isdigit() for t in qualifiers):
-        score += 0.28
+
+    # Bonuses apply only to candidates that are lexically relevant at all. Ungated, the
+    # plain-modifier bonus reorders the list by "plainness" when NOTHING matches — the string
+    # "dream whip" was headed by Arrowhead/Taro/Pummelo purely because they are "..., raw".
+    # For a hopeless string the honest display is plain cosine order.
+    if leads or head in tokens:
+        qualifiers = [t for facet in facets[1:] for t in facet.replace("-", " ").split()]
+        if qualifiers and all(t in PLAIN_MODIFIERS or t.isdigit() for t in qualifiers):
+            score += 0.28
+        if has_kcal:
+            score += 0.03
     if deprioritized:
         score -= 0.15
-    if has_kcal:
-        score += 0.03
     return score
 
 
@@ -171,7 +185,7 @@ def candidates_for(con, normalized_text: str, limit: int = DISPLAY_K) -> list[tu
     unique.sort(
         key=lambda row: -display_score(normalized_text, row[5], row[1], row[3], row[2] is not None)
     )
-    return [row[:5] for row in unique[:limit]]
+    return unique[:limit]
 
 
 def search_foods(con, query: str, limit: int = SEARCH_RESULTS) -> list[tuple]:
@@ -217,8 +231,12 @@ def search_foods(con, query: str, limit: int = SEARCH_RESULTS) -> list[tuple]:
     return exact
 
 
+WEAK_MATCH_COSINE = 0.55
+
+
 def _show(rows: list[tuple]) -> None:
-    for position, (_, description, kcal, deprioritized, _rank) in enumerate(rows):
+    for position, row in enumerate(rows):
+        _, description, kcal, deprioritized = row[0], row[1], row[2], row[3]
         energy = f"{kcal:>4.0f} kcal" if kcal is not None else "  no kcal"
         flag = " ~" if deprioritized else "  "
         print(f"  {position:>3}{flag}{energy}  {description[:88]}")
@@ -249,39 +267,70 @@ def main() -> None:
         todo = [row for row in sample if row["normalized_text"] not in labels]
 
         print(f"{len(labels)} of {len(sample)} labeled — {len(todo)} to go")
-        print("keys: number = pick   n = no-match   s = search all foods   k = skip   q = quit")
+        print("keys: ENTER = accept the top row   number = pick   n = no-match")
+        print("      s = search all foods   m = show more   k = skip   q = quit")
         print("rules: docs/labeling_guide.md   (~ = deprioritized: babyfood/restaurant/brand)\n")
 
         for position, row in enumerate(todo, start=1):
             text = row["normalized_text"]
+            control = row.get("control", False)
+            ranked = candidates_for(con, text)
+            suggested = ranked[0][0] if ranked else None
+            presentation = "scrambled" if control else "ranked"
+
             print(f"[{position}/{len(todo)}] {row['frequency_stratum']} · "
                   f"{row['occurrence_count']} occurrences")
             print(f"  STRING: {text!r}")
             for line in row["example_lines"]:
                 print(f"    seen as: {line}")
-            rows = candidates_for(con, text)
-            _show(rows)
+
+            # A hint, not a verdict — the judgment stays the labeler's.
+            if ranked and max(row[5] for row in ranked) < WEAK_MATCH_COSINE:
+                print("  (nothing similar in USDA — 'n' is likely right)")
+
+            shown = list(ranked[:SHORTLIST])
+            if control:
+                # No suggestion, no ranking signal — this row measures anchoring.
+                random.Random(f"scramble:{text}").shuffle(shown)
+                print("  (unranked — no suggestion on this one)")
+            _show(shown)
+            prompt = ("  [n]o-match [s]earch [m]ore [k]skip [q]uit > " if control else
+                      "  ENTER accepts 0   [n]o-match [s]earch [m]ore [k]skip [q]uit > ")
 
             while True:
-                choice = input("  > ").strip().lower()
+                choice = input(prompt).strip().lower()
                 if choice == "q":
                     print(f"\nsaved {len(load_labels(labels_path))} labels to {labels_path}")
                     return
                 if choice == "k":
                     break
+                if choice == "" and not control and shown:
+                    chosen = shown[0]
+                    append_label(labels_path, make_label(
+                        text, chosen[0], "candidate", chosen[4], 0, presentation, suggested))
+                    break
+                if choice == "m":
+                    shown = list(ranked)
+                    if control:
+                        random.Random(f"scramble:{text}").shuffle(shown)
+                    _show(shown)
+                    continue
                 if choice == "n":
-                    append_label(labels_path, make_label(text, NO_MATCH, "candidate"))
+                    append_label(labels_path, make_label(
+                        text, NO_MATCH, "candidate", None, None, presentation, suggested))
                     break
                 if choice == "s":
                     picked = _prompt_search(con)
                     if picked:
-                        append_label(labels_path, make_label(text, picked[0], "search"))
+                        append_label(labels_path, make_label(
+                            text, picked[0], "search", None, None, presentation, suggested))
                         break
                     continue
-                if choice.isdigit() and int(choice) < len(rows):
-                    chosen = rows[int(choice)]
+                if choice.isdigit() and int(choice) < len(shown):
+                    chosen = shown[int(choice)]
                     append_label(labels_path, make_label(
-                        text, chosen[0], "candidate", chosen[4], int(choice)))
+                        text, chosen[0], "candidate", chosen[4], int(choice),
+                        presentation, suggested))
                     break
                 print("  ?")
             print()

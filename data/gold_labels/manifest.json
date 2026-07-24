@@ -1,13 +1,14 @@
 {
   "seed": 20260724,
-  "total": 500,
+  "total": 300,
   "per_stratum": {
-    "head": 167,
-    "mid": 167,
-    "tail": 166
+    "head": 100,
+    "mid": 100,
+    "tail": 100
   },
-  "tune": 300,
-  "holdout": 200,
-  "holdout_fingerprint": "33c1b582d1987b6e344f170431b1a9d03764824519b47eb45cf17df1a3a7df18",
+  "tune": 201,
+  "holdout": 99,
+  "control": 42,
+  "holdout_fingerprint": "2efc8b262aac5fda866296d22e6c723626ff0f3c848f9570eba7c1692a44ce34",
   "labeling_guide": "docs/labeling_guide.md"
 }
