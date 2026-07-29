@@ -349,11 +349,73 @@ defensible accuracy target*.
 A clean null — no evidence the gold labels encode the ranking they were shown. n=7, so a smoke
 test rather than a validation.
 
+## 8. The shipped resolver, and why "mid is weak" was the wrong question
+
+### What ships
+
+`uv run python -m pantryiq.er.resolve` — **the top embedding cosine, and nothing else**, plus a
+confidence flag from an isotonic curve fitted on tune (`data/confidence_curve.json`, so resolving
+is a lookup rather than a fit). `features.py` / `scoring.py` / `routing.py` remain as the
+reproducible record of the experiment in §7; **nothing in the shipped path imports them.**
+
+Holdout: **64.4% nutritionally equivalent** over all 87 resolvable strings, median error 0.0%.
+Note the denominator differs from §7's 63.6% (n=77), which excluded strings whose gold was never
+retrieved; 87 is the harsher and more honest count. Both come from the same single holdout read.
+
+The flag separates usefully out of sample: 18 strings flagged at 44.4% equivalent against 69.6%
+for the rest. The cut (0.40) was chosen on tune — the isotonic curve is a coarse step function, so
+anything in 0.40–0.50 flags the same 23% of tune strings.
+
+> **Defect caught by a test:** the resolver returned identical picks in a *different row order* on
+> successive calls — no outer `ORDER BY`. Harmless for correctness, but it would have made every
+> run-to-run diff of the resolved output pure noise.
+
+### Frequency stratum is not the real axis — label confidence is
+
+The holdout showed mid at 50% against head 67% and tail 77%, which looked like the strongest lead
+available. Over all 300 labels the gap is smaller (head 60 / mid 54 / tail 64), and conditioning
+on label confidence dissolves most of it:
+
+| stratum | high-confidence labels | low-confidence labels |
+|---|---|---|
+| head | 65% (n=77) | 31% (n=13) |
+| mid | **62%** (n=55) | 41% (n=32) |
+| tail | 81% (n=54) | 31% (n=29) |
+
+**Among high-confidence labels, mid (62%) matches head (65%).** What mid actually has is more
+uncertain labels — 37% flagged low-confidence against head's 13%. And low-confidence labels score
+31–41% in *every* stratum, a ~30pp effect that dwarfs any difference between strata.
+
+Since pass 1 measured low-confidence labels agreeing with a blind human relabel only **12.5%** of
+the time (against 47.1% for high-confidence), a substantial part of what these numbers call
+resolver error is **label error**. The 85 low-confidence labels are the highest-value target in
+the project, and the agreed multi-annotator ensemble is exactly the instrument for them.
+
+Mid also has the *lowest* irreducible ambiguity (median 22% kcal spread within the correct food,
+against head's 49%), which rules out facet ambiguity as the explanation.
+
+### Two real error patterns in the failures
+
+- **Dry mix vs ready-to-eat**, and it is expensive: `chocolate pudding` gold *dry mix* 378 kcal vs
+  picked *ready-to-eat* 142; `black cherry jello` gold *dry mix* 381 vs picked *cherry juice* 59;
+  `coffee creamer` gold *powdered* 529 vs picked *fluid* 195. Recipes naming a pudding or jello
+  almost always mean the box. This is the same form-ambiguity family as rule 2b and is not yet
+  covered by it.
+- **Lexical traps on short strings**: `fettucine` → `Cheese, feta`, `kraut` → `Kohlrabi, raw`,
+  `cider` → `Vinegar, cider`, `bacon slice` → `Bacon, meatless`.
+
+### A fix that was measured and rejected
+
+The resolver ignores `is_deprioritized`, so babyfood and brand entries can win — `fettuccine
+noodle` → `Babyfood, dinner, beef noodle, junior` — which guide rule 3 forbids. Skipping
+deprioritized candidates outright: **56.6% → 57.0% on tune, McNemar 1 vs 1, p = 1.0.** Only 4% of
+picks are affected, and a blanket skip *breaks* the strings that name the brand: `jimmy dean
+sausage` went from the correct JIMMY DEAN entry to `Sausage, meatless`, `peanut m m s` from M&M's
+to `Peanuts, raw`. Rule 3 is conditional on the line naming the brand, and 7 affected strings
+cannot validate brand-matching logic. Not adopted.
+
 ## Still to measure
 
-- **Decide whether to ship the baseline resolver instead of the model.** They are
-  indistinguishable on both splits; simplicity favours the baseline, and that argument does not
-  touch the holdout. Doing so drops sklearn, training and calibration from the inference path.
 - **2.6 Claude adjudication** — now known to be *required* rather than an optimization. Note the
   provenance constraint: it cannot be scored against claude-produced labels (self-consistency),
   so use the 43 human judgments only.
@@ -362,8 +424,14 @@ test rather than a validation.
   already collected (18 original + 25 pass-1 relabels) plus the 16 adjudications.
 - % resolved *per occurrence* rather than per unique string — the head strings carry 83.5% of
   occurrences, so the occurrence-weighted number will differ substantially from 63.6%.
-- The mid stratum is the weak point on every metric (recall@50 86.4%, holdout equivalence 50.0%).
-  Worth a targeted look at what those strings have in common.
+- **The 85 low-confidence labels** — §8 shows they score ~30pp worse than high-confidence ones in
+  every stratum, and pass 1 measured them agreeing with a human only 12.5% of the time. This is
+  the single largest identified lever, and the annotator ensemble is the instrument for it.
+- **Dry mix vs ready-to-eat** as a rule-2b extension: `chocolate pudding`, `black cherry jello`
+  and `coffee creamer` all fail this way, with 2–6× kcal consequences.
+- Occurrence-weighted equivalence, per the note above.
 
-**Done since this list was written:** 2.5 (§7 above) · the anchoring diagnostic (§7) ·
-`recall_at_k` rule-6 duplicate credit (§2 — implemented, changes nothing).
+**Done since this list was written:** 2.5 (§7) · the shipped resolver (§8) · the stratum
+investigation, which found frequency was the wrong axis (§8) · the anchoring diagnostic (§7) ·
+`recall_at_k` rule-6 duplicate credit (§2 — implemented, changes nothing) · deprioritization fix
+measured and rejected (§8).
