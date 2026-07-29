@@ -1,0 +1,16 @@
+{"normalized_text": "beef bouillon cube", "verdict": "claude", "claude_fdc_id": "171561", "human_fdc_id": "173101", "shown_first": "human", "chose_position": "b", "adjudicated_at": "2026-07-29T21:43:50+00:00"}
+{"normalized_text": "cider", "verdict": "claude", "claude_fdc_id": "173933", "human_fdc_id": "173469", "shown_first": "human", "chose_position": "b", "adjudicated_at": "2026-07-29T21:45:43+00:00"}
+{"normalized_text": "cracked peach pit", "verdict": "human", "claude_fdc_id": "no-match", "human_fdc_id": "325430", "shown_first": "claude", "chose_position": "b", "adjudicated_at": "2026-07-29T21:46:04+00:00"}
+{"normalized_text": "evaporated milk", "verdict": "human", "claude_fdc_id": "172194", "human_fdc_id": "170878", "shown_first": "claude", "chose_position": "b", "adjudicated_at": "2026-07-29T21:46:17+00:00"}
+{"normalized_text": "french style green bean", "verdict": "human", "claude_fdc_id": "169143", "human_fdc_id": "169961", "shown_first": "human", "chose_position": "a", "adjudicated_at": "2026-07-29T21:46:28+00:00"}
+{"normalized_text": "juice from pickle", "verdict": "claude", "claude_fdc_id": "no-match", "human_fdc_id": "169379", "shown_first": "claude", "chose_position": "a", "adjudicated_at": "2026-07-29T21:46:37+00:00"}
+{"normalized_text": "old english cheese spread", "verdict": "human", "claude_fdc_id": "171254", "human_fdc_id": "170896", "shown_first": "human", "chose_position": "a", "adjudicated_at": "2026-07-29T21:46:52+00:00"}
+{"normalized_text": "pineapple juice", "verdict": "claude", "claude_fdc_id": "169947", "human_fdc_id": "168205", "shown_first": "human", "chose_position": "b", "adjudicated_at": "2026-07-29T21:47:07+00:00"}
+{"normalized_text": "processed american cheese", "verdict": "claude", "claude_fdc_id": "171290", "human_fdc_id": "169080", "shown_first": "human", "chose_position": "b", "adjudicated_at": "2026-07-29T21:47:18+00:00"}
+{"normalized_text": "rounded tbsp flour", "verdict": "claude", "claude_fdc_id": "168894", "human_fdc_id": "2003586", "shown_first": "human", "chose_position": "b", "adjudicated_at": "2026-07-29T21:47:28+00:00"}
+{"normalized_text": "scalded milk", "verdict": "claude", "claude_fdc_id": "746782", "human_fdc_id": "169868", "shown_first": "claude", "chose_position": "a", "adjudicated_at": "2026-07-29T21:47:40+00:00"}
+{"normalized_text": "sorrel and chervil", "verdict": "human", "claude_fdc_id": "no-match", "human_fdc_id": "171318", "shown_first": "human", "chose_position": "a", "adjudicated_at": "2026-07-29T21:47:46+00:00"}
+{"normalized_text": "spiral pasta", "verdict": "human", "claude_fdc_id": "169736", "human_fdc_id": "168927", "shown_first": "human", "chose_position": "a", "adjudicated_at": "2026-07-29T21:47:54+00:00"}
+{"normalized_text": "strawberry", "verdict": "claude", "claude_fdc_id": "167762", "human_fdc_id": "168758", "shown_first": "human", "chose_position": "b", "adjudicated_at": "2026-07-29T21:48:02+00:00"}
+{"normalized_text": "tortilla", "verdict": "claude", "claude_fdc_id": "167535", "human_fdc_id": "175036", "shown_first": "human", "chose_position": "b", "adjudicated_at": "2026-07-29T21:48:12+00:00"}
+{"normalized_text": "whole tomato", "verdict": "human", "claude_fdc_id": "170051", "human_fdc_id": "1999634", "shown_first": "human", "chose_position": "a", "adjudicated_at": "2026-07-29T21:48:23+00:00"}
