@@ -10,6 +10,7 @@ from pantryiq.er.relabel import (
     agreement,
     draw,
     ensure_manifest,
+    paths,
     population,
     rows_to_judge,
     same_entity,
@@ -80,6 +81,35 @@ def test_the_manifest_is_frozen_once_written(tmp_path):
     assert ensure_manifest(tmp_path)["strings"] == first["strings"]
     assert first["population_fingerprint"] == json.loads(
         (tmp_path / "relabel_manifest.json").read_text())["population_fingerprint"]
+
+
+def test_a_later_pass_never_redraws_a_string_an_earlier_pass_saw(tmp_path):
+    """A string judged twice is not a fresh measurement — pass 2 exists to be out-of-sample."""
+    path = tmp_path / "labels.jsonl"
+    for name in "abcdefghijklmnop":
+        append_label(path, {**make_label(name, "1", "candidate"), "labeler": "claude"})
+
+    first = ensure_manifest(tmp_path, number=1)
+    second = ensure_manifest(tmp_path, number=2)
+
+    assert set(first["strings"]).isdisjoint(second["strings"])
+    assert second["excluded_as_already_drawn"] == len(first["strings"])
+
+
+def test_each_pass_records_the_guide_it_was_judged_under(tmp_path):
+    """Pass 1 measured against a guide with no tiebreak for the case most disagreement fell
+    into; comparing the two rates is only meaningful if that is on the record."""
+    path = tmp_path / "labels.jsonl"
+    for name in "abcdefghijklmnop":
+        append_label(path, {**make_label(name, "1", "candidate"), "labeler": "claude"})
+
+    assert ensure_manifest(tmp_path, 1)["guide"] != ensure_manifest(tmp_path, 2)["guide"]
+
+
+def test_pass_one_keeps_its_original_filenames(tmp_path):
+    """Pass 1's manifest and judgments are committed — renaming them orphans the record."""
+    assert paths(tmp_path, 1) == (tmp_path / "relabel_manifest.json", tmp_path / "relabel.jsonl")
+    assert paths(tmp_path, 2) == (tmp_path / "relabel_manifest2.json", tmp_path / "relabel2.jsonl")
 
 
 def test_rows_to_judge_carries_no_gold_label():
