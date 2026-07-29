@@ -45,6 +45,25 @@ def mcnemar(pairs: list[tuple[bool, bool]]) -> tuple[int, int, float]:
     return (a_only, b_only, min(1.0, 2 * tail))
 
 
+def bootstrap_ci(values: list[float], statistic=np.mean, iterations: int = ITERATIONS,
+                 seed: int = SEED) -> tuple[float, float, float]:
+    """(observed statistic, CI low, CI high) resampling strings with replacement.
+
+    Used for the holdout's own rates. A Wilson interval is preferable for a plain proportion, but
+    kcal error needs a median, and reporting both through one resampling scheme keeps the
+    intervals comparable to each other.
+    """
+    if not values:
+        return (0.0, 0.0, 0.0)
+    sample = np.asarray(values, dtype=np.float64)
+    observed = float(statistic(sample))
+    rng = np.random.default_rng(seed)
+    indices = rng.integers(0, len(sample), size=(iterations, len(sample)))
+    draws = np.array([statistic(sample[row]) for row in indices])
+    low, high = np.percentile(draws, [2.5, 97.5])
+    return (observed, float(low), float(high))
+
+
 def paired_bootstrap(pairs: list[tuple[float, float]], statistic=np.mean,
                      iterations: int = ITERATIONS, seed: int = SEED,
                      ) -> tuple[float, float, float, float]:
