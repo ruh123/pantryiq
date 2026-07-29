@@ -97,11 +97,14 @@ complement: it retrieves by exact head-noun match where embeddings drift semanti
 The human subset scores *higher*, which is reassuring — rubber-stamped labels would have put
 the LLM subset near 100%. n=17; a smoke test, not a validation.
 
-> ⚠️ **Known gap:** `recall_at_k` compares raw `fdc_id` equality, but the guide's rule 6 says
-> evaluation credits any entity sharing the gold `description_raw` (94 descriptions exist twice,
-> Foundation + SR Legacy). So these recall figures are **slightly understated**. The credit rule
-> *is* implemented for the agreement measures below. Fix in 2.5, where it must also govern
-> precision.
+> **Rule-6 duplicate credit: implemented, and it changes recall by nothing.** The guide credits
+> any entity sharing the gold `description_raw` (94 descriptions exist twice, Foundation + SR
+> Legacy — 188 ids). Applying it leaves every figure above *identical*. 21 of the 264 resolvable
+> gold entities have a twin, and in **zero** cases does the twin appear in top-k without the gold:
+> identical descriptions produce identical embeddings, so twins land at adjacent ranks and are
+> either both retrieved or both missed. An earlier version of this doc predicted these figures
+> were understated; they were not. The credit still matters for **2.5**, where the scorer picks a
+> single entity and raw id equality would mis-score a twin pick.
 
 ## 3. Blind relabel, pass 1 — 36% agreement
 

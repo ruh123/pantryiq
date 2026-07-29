@@ -154,8 +154,23 @@ def build_candidates(db_path: Path | str = DEFAULT_DB, k: int = TOP_K,
     return pa.table(out)
 
 
+def alias_groups(descriptions: dict[str, str]) -> dict[str, set[str]]:
+    """fdc_id -> every fdc_id sharing its `description_raw`.
+
+    Guide rule 6: 94 descriptions exist twice, once as Foundation and once as SR Legacy, with
+    different ids and slightly different values. Either is correct, so scoring on raw id
+    equality understates every metric. Only ids with a twin appear here.
+    """
+    by_description: dict[str, set[str]] = {}
+    for fdc_id, description in descriptions.items():
+        by_description.setdefault(description, set()).add(fdc_id)
+    return {fdc_id: group for group in by_description.values() if len(group) > 1
+            for fdc_id in group}
+
+
 def recall_at_k(candidates: pa.Table, labels: dict[str, str], k: int,
-                method: str | None = None) -> float:
+                method: str | None = None,
+                aliases: dict[str, set[str]] | None = None) -> float:
     """Share of labeled strings whose gold entity appears within the top-k candidates.
 
     This is the ceiling on everything downstream: a scorer cannot pick what was never shown.
@@ -163,6 +178,10 @@ def recall_at_k(candidates: pa.Table, labels: dict[str, str], k: int,
     null class and are excluded from the denominator. Pass `method` — one of the
     `from_embed_search` / `from_embed_desc` / `from_token_head` membership columns — to
     attribute recall to a single generator.
+
+    Pass `aliases` (from `alias_groups`) to apply the rule-6 duplicate credit. Without it a
+    prediction is penalized for choosing the other member of a Foundation/SR Legacy pair, which
+    is not an error.
 
     "Top-k" means the first k rows *after* any method filter, not rank < k. The two agree for
     the unfiltered table (ranks are dense), and the filtered reading is the meaningful one:
@@ -184,7 +203,8 @@ def recall_at_k(candidates: pa.Table, labels: dict[str, str], k: int,
         if gold == "no-match":
             continue
         considered += 1
-        if any(fdc_id == gold for _, fdc_id in sorted(by_string.get(text, []))[:k]):
+        accept = aliases.get(gold, {gold}) if aliases else {gold}
+        if any(fdc_id in accept for _, fdc_id in sorted(by_string.get(text, []))[:k]):
             hits += 1
     return hits / considered if considered else 0.0
 

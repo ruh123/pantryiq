@@ -15,7 +15,7 @@ from pathlib import Path
 import duckdb
 import pyarrow as pa
 
-from pantryiq.er.candidates import recall_at_k
+from pantryiq.er.candidates import alias_groups, recall_at_k
 
 DEFAULT_DB = Path("data/pantryiq.duckdb")
 DEFAULT_GOLD = Path("data/gold_labels")
@@ -33,6 +33,16 @@ def load_gold(gold_dir: Path | str = DEFAULT_GOLD) -> tuple[dict[str, str], dict
             labels[record["normalized_text"]] = record["fdc_id"]
             records[record["normalized_text"]] = record
     return labels, records
+
+
+def load_aliases(db_path: Path | str = DEFAULT_DB) -> dict[str, set[str]]:
+    """Rule-6 duplicate credit: fdc_ids sharing a description_raw are interchangeable."""
+    con = duckdb.connect(str(db_path), read_only=True)
+    try:
+        return alias_groups(dict(con.execute(
+            "SELECT fdc_id, description_raw FROM silver.usda_foods").fetchall()))
+    finally:
+        con.close()
 
 
 def load_candidates(db_path: Path | str = DEFAULT_DB) -> pa.Table:
@@ -58,6 +68,7 @@ def strata(gold_dir: Path | str = DEFAULT_GOLD) -> dict[str, str]:
 def main() -> None:
     labels, records = load_gold()
     candidates = load_candidates()
+    aliases = load_aliases()
     stratum_of = strata()
     resolvable = {text: gold for text, gold in labels.items() if gold != "no-match"}
 
@@ -65,26 +76,27 @@ def main() -> None:
           f"null class: {len(labels) - len(resolvable)} "
           f"({100 * (len(labels) - len(resolvable)) / len(labels):.1f}%)")
 
+    print(f"\nduplicate-credit groups (rule 6): {len(aliases)} fdc_ids share a description")
     print("\nrecall@k (all labels)")
     for k in K_VALUES:
-        print(f"  @{k:<4} {100 * recall_at_k(candidates, labels, k):5.1f}%")
+        print(f"  @{k:<4} {100 * recall_at_k(candidates, labels, k, aliases=aliases):5.1f}%")
 
     print("\nrecall@50 by stratum")
     for stratum in ("head", "mid", "tail"):
         subset = {t: g for t, g in labels.items() if stratum_of.get(t) == stratum}
         n = sum(1 for g in subset.values() if g != "no-match")
-        print(f"  {stratum:5} n={n:3}  {100 * recall_at_k(candidates, subset, 50):5.1f}%")
+        print(f"  {stratum:5} n={n:3}  {100 * recall_at_k(candidates, subset, 50, aliases=aliases):5.1f}%")
 
     print("\nrecall@50 by generator (each running alone)")
     for generator in GENERATORS:
-        print(f"  {generator[5:]:13} {100 * recall_at_k(candidates, labels, 50, generator):5.1f}%")
+        print(f"  {generator[5:]:13} {100 * recall_at_k(candidates, labels, 50, generator, aliases):5.1f}%")
 
     print("\nrecall@k by label provenance")
     for labeler in ("human", "claude"):
         subset = {t: g for t, g in labels.items()
                   if records[t].get("labeler", "human") == labeler}
         n = sum(1 for g in subset.values() if g != "no-match")
-        scores = "  ".join(f"@{k}={100 * recall_at_k(candidates, subset, k):.1f}%"
+        scores = "  ".join(f"@{k}={100 * recall_at_k(candidates, subset, k, aliases=aliases):.1f}%"
                            for k in (5, 25, 50))
         print(f"  {labeler:6} n={n:3}  {scores}")
 

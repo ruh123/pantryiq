@@ -2,7 +2,12 @@
 import numpy as np
 import pyarrow as pa
 
-from pantryiq.er.candidates import build_head_noun_index, recall_at_k, top_k_exact
+from pantryiq.er.candidates import (
+    alias_groups,
+    build_head_noun_index,
+    recall_at_k,
+    top_k_exact,
+)
 
 
 def _normalized(rows):
@@ -124,3 +129,22 @@ def test_recall_at_k_attributes_per_method():
 def test_recall_at_k_missing_string_is_a_miss():
     candidates = _candidate_table([("egg", "100", "embed_search", 0)])
     assert recall_at_k(candidates, {"nonexistent": "999"}, k=5) == 0.0
+
+
+def test_alias_groups_only_contains_ids_with_a_twin():
+    """Rule 6: 94 descriptions exist twice (Foundation + SR Legacy). Singletons need no entry."""
+    groups = alias_groups({"1": "Carrots, baby, raw", "9": "Carrots, baby, raw",
+                           "2": "Cheese, cheddar"})
+
+    assert groups == {"1": {"1", "9"}, "9": {"1", "9"}}
+    assert "2" not in groups
+
+
+def test_recall_credits_the_duplicate_twin():
+    """Scoring on raw fdc_id equality penalizes picking the other member of a duplicate pair,
+    which the guide says is not an error — so every metric was understated."""
+    table = pa.table({"normalized_text": ["carrot"], "fdc_id": ["9"], "rank": [0]})
+    labels = {"carrot": "1"}
+
+    assert recall_at_k(table, labels, 5) == 0.0
+    assert recall_at_k(table, labels, 5, aliases={"1": {"1", "9"}, "9": {"1", "9"}}) == 1.0
