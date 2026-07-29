@@ -3,8 +3,11 @@
 Regenerate: `uv run python -m pantryiq.er.metrics` (recall@k) ·
 `uv run python -m pantryiq.er.nutrition` (kcal error + ambiguity ceiling) ·
 `uv run python -m pantryiq.er.convention` (rule 2b audit) ·
+`uv run python -m pantryiq.er.report` (2.5 holdout) ·
+`uv run python -m pantryiq.er.resolve` (shipped resolver) ·
 `uv run python -m pantryiq.er.relabel --report --pass 1` ·
-`uv run python -m pantryiq.er.adjudicate --report`
+`uv run python -m pantryiq.er.adjudicate --report` ·
+`uv run python -m pantryiq.er.ensemble --report` (annotator agreement)
 
 **If you read one thing:** the headline metric of this project is **nutrition error, not entity
 accuracy**, and the reason is measured rather than asserted — see
@@ -16,6 +19,11 @@ assigned it.
 to the gold label (95% CI 53.2–74.0%), median kcal error 0.0%.** Eight engineered features and a
 calibrated logistic model are worth nothing measurable over taking the top embedding cosine — see
 [§7](#7-scoring-and-routing-25--the-frozen-holdout-read-once).
+
+**Label quality, measured: Krippendorff's α = 0.709** across three independent annotators on 120
+strings ([§9](#9-multi-annotator-ensemble--α--0709-and-it-does-not-beat-the-gold-labels)). Usable
+for directional claims, not precise ones — and the ensemble could not improve on the existing
+labels, so they were left in place.
 
 ---
 
@@ -42,6 +50,10 @@ Every label records its `labeler` and a `confidence` flag (215 high / 85 low).
 
 **This section used to end with "to strengthen this, a human should relabel ~30 strings blind."
 That was done.** Sections 3–6 are the result, and it did not go the way the caveat implied.
+
+**The caveat now has a number attached.** Three independent annotators over 120 strings give
+**Krippendorff's α = 0.709** (§9) — below the ~0.8 publication bar, above the ~0.67 floor. Quote
+that alongside any entity-level figure: it is the measured version of everything above.
 
 ## 2. Candidate generation (2.4)
 
@@ -414,24 +426,112 @@ sausage` went from the correct JIMMY DEAN entry to `Sausage, meatless`, `peanut 
 to `Peanuts, raw`. Rule 3 is conditional on the line naming the brand, and 7 affected strings
 cannot validate brand-matching logic. Not adopted.
 
+## 9. Multi-annotator ensemble — α = 0.709, and it does not beat the gold labels
+
+The instrument aimed at §8's finding that low-confidence labels are the project's weakest link.
+Three **independent** annotators (`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`) judge
+each string; the majority vote is the candidate label, and the spread between annotators is the
+quality measure. 120 strings × 3 = **360 judgments, 0 failures**. Regenerate:
+`uv run python -m pantryiq.er.ensemble --report`.
+
+Four design choices make the number mean something:
+
+- **Three different models, not one model three times.** At these settings the same model returns
+  near-identical answers, so an "ensemble" built that way measures nothing.
+- **Candidates shuffled per string** (deterministic by seed), *not* in `display_score` order — the
+  original 282 labels were produced while seeing that ranking, and reusing it would re-import the
+  anchoring §7 spent a control group measuring. `shown_order` is recorded on every judgment.
+- **The rules are sliced out of `docs/labeling_guide.md` at runtime**, not restated in the prompt.
+  Restating them is precisely the drift that produced §3's 36% disagreement.
+- **Recipe lines are treated as data**, wrapped in a tag with an explicit instruction to ignore
+  directives inside them (the brief's injection-hardening requirement).
+
+### The agreement number
+
+**Krippendorff's α (nominal) = 0.709** over all 120 strings; **0.780** over the 25
+mixed-confidence validation strings. Unanimous on **74/120 (61.7%)**. **9 strings** were three-way
+splits — three capable models, three different answers, no majority at all.
+
+0.709 sits below the ~0.8 publication bar and above the ~0.67 floor. **It confirms the §1 caveat
+rather than dissolving it:** these labels support directional conclusions, not precise ones. That
+was already the doc's prose position; it is now a statistic a reader can interpret.
+
+| Annotator | agreement with the majority vote |
+|---|---|
+| `claude-sonnet-5` | 98.2% (the median annotator) |
+| `claude-opus-5` | 87.4% |
+| `claude-haiku-4-5` | 82.9% |
+
+### It is not an improvement, and aggregation actively hurt
+
+Scored against the **25 independent human judgments** — the pass-1 blind relabels, where the human
+verdict was formed without seeing the gold label:
+
+| | n | entity | kcal-equivalent |
+|---|---|---|---|
+| `claude-opus-5` alone | 25 | **48.0%** | 65.2% [45–81] |
+| `claude-haiku-4-5` alone | 25 | 44.0% | **68.2%** [47–84] |
+| `claude-sonnet-5` alone | 25 | 36.0% | 59.1% [39–77] |
+| **majority vote** | 23 | 39.1% | 61.9% [41–79] |
+| **current gold label** | 23 | 34.8% | 60.0% [39–78] |
+
+The vote beats the existing labels by +4.3pp entity and +1.9pp kcal — entirely inside the noise at
+n=23. Worse for the premise: **the majority vote scores below the best single annotator** (39.1%
+vs 48.0% entity). The two weaker models outvoted the strongest, which is the opposite of what
+ensembling is supposed to do. Selecting `claude-opus-5` on the strength of that table would be
+selection on a 25-row validation set — the same error §7 records — so it is noted, not acted on.
+
+> ⚠️ **Measurement bug caught before this was reported.** The first run showed the gold labels at
+> 61.5% entity / 77.1% kcal, apparently beating the ensemble by 15pp. That was an artifact: 18 of
+> the 43 human-judged strings are ones a human labeled *directly*, so for those the gold label
+> **is** the human judgment and scored 100% for free. Only the 25 blind relabels are independent.
+> `report()` now excludes the self-scoring rows and prints how many it dropped.
+
+**Decision: the votes were not promoted.** `labels.jsonl` is unchanged. The ensemble did the job
+it was built for — measuring label quality — and the measurement says overwriting 85 labels with a
+statistically indistinguishable aggregation would buy churn, not accuracy.
+
+### What this implies for 2.6
+
+2.6's premise is that Claude adjudication *fixes* the resolver's mistakes. Put the two side by
+side:
+
+| | entity | kcal-equivalent |
+|---|---|---|
+| shipped resolver — top cosine (§7 holdout) | 46.8% | 63.6% |
+| `claude-opus-5` with the full guide + 40 candidates | 48.0% | 65.2% |
+
+**An LLM given the complete labeling guide and 40 candidates performs about the same as taking the
+top embedding cosine.** Different string sets and small n, so this is suggestive rather than
+settled — but it is the first direct evidence on the question, and combined with aggregation
+making things worse it moves the prior on 2.6 substantially. Worth measuring properly (one
+annotator over the 201-string tune split, paired against the resolver on identical strings using
+the `mcnemar` / `paired_bootstrap` machinery) **before** building 2.6 rather than after.
+
+Two incidental findings worth keeping: `claude-haiku-4-5` cannot use the prompt cache here — its
+minimum cacheable prefix is 4,096 tokens and the rules prefix is ~1,800, so all of its input bills
+at full rate while the other two cache theirs. And every judgment records which guide rule the
+annotator applied, giving a per-rule audit trail of what actually decided each call.
+
 ## Still to measure
 
-- **2.6 Claude adjudication** — now known to be *required* rather than an optimization. Note the
-  provenance constraint: it cannot be scored against claude-produced labels (self-consistency),
-  so use the 43 human judgments only.
-- **Multi-annotator ensemble** (agreed direction, after 2.5): relabel with 2–3 independent LLM
-  annotators, majority vote, publish Krippendorff's α, validated against the 43 human judgments
-  already collected (18 original + 25 pass-1 relabels) plus the 16 adjudications.
-- % resolved *per occurrence* rather than per unique string — the head strings carry 83.5% of
-  occurrences, so the occurrence-weighted number will differ substantially from 63.6%.
-- **The 85 low-confidence labels** — §8 shows they score ~30pp worse than high-confidence ones in
-  every stratum, and pass 1 measured them agreeing with a human only 12.5% of the time. This is
-  the single largest identified lever, and the annotator ensemble is the instrument for it.
+- **Whether 2.6 is worth building at all** — the paired tune-split test described in §9. Do this
+  before writing the adjudicator. Note the standing provenance constraint: an adjudicator cannot
+  be scored against claude-produced labels, so the 25 independent human judgments are the only
+  honest yardstick.
+- **2.7** — assemble `silver.ingredient_entity_map` over all 9,324 strings and publish the
+  headline. This is the deliverable that makes the work demonstrable rather than a set of
+  measurements.
+- **Occurrence-weighted equivalence.** Head strings carry 83.5% of all ingredient occurrences and
+  score better than mid, so the per-occurrence figure will differ substantially from 63.6% —
+  probably upward. The brief asks for both denominators.
 - **Dry mix vs ready-to-eat** as a rule-2b extension: `chocolate pudding`, `black cherry jello`
   and `coffee creamer` all fail this way, with 2–6× kcal consequences.
-- Occurrence-weighted equivalence, per the note above.
+- **The 9 three-way-split strings** are the most genuinely ambiguous rows in the dataset and are
+  worth reading directly — they are where the task itself, not the pipeline, is under-determined.
 
 **Done since this list was written:** 2.5 (§7) · the shipped resolver (§8) · the stratum
 investigation, which found frequency was the wrong axis (§8) · the anchoring diagnostic (§7) ·
 `recall_at_k` rule-6 duplicate credit (§2 — implemented, changes nothing) · deprioritization fix
-measured and rejected (§8).
+measured and rejected (§8) · the multi-annotator ensemble (§9 — measured, not promoted) · the 85
+low-confidence labels (§9 — measured; the ensemble could not improve them).
