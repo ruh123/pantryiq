@@ -349,32 +349,54 @@ def report(gold_dir: Path | str = DEFAULT_OUT, db_path: Path | str = DEFAULT_DB)
             print(f"  {model:22} {hits}/{len(pairs)} = {100 * hits / len(pairs):5.1f}%")
 
     # --- validation against human judgment -------------------------------------------
-    human = {text: record["fdc_id"] for text, record in labels.items()
-             if record.get("labeler") == "human"}
-    human.update({text: record["fdc_id"] for text, record in relabels.items()})
-    checkable = [text for text in complete if text in human]
-    print(f"\nVALIDATION against {len(checkable)} human-judged strings")
+    # ONLY the blind-relabel judgments count. For the 18 strings a human labeled directly, the
+    # gold label IS the human judgment, so scoring "gold vs human" on them is gold scoring
+    # against itself — it reports 100% for free and inflated gold by ~15pp on the first run.
+    # Those rows are excluded and counted, not silently folded in.
+    self_scoring = {text for text, record in labels.items()
+                    if record.get("labeler") == "human"} & set(complete)
+    human = {text: record["fdc_id"] for text, record in relabels.items()}
+    checkable = sorted(set(complete) & set(human) - self_scoring)
+    print(f"\nVALIDATION against {len(checkable)} INDEPENDENT human judgments "
+          f"(blind relabels of annotator-produced labels)")
+    print(f"  {len(self_scoring)} human-labeled strings excluded: there the gold label IS the "
+          "human judgment,\n  so including them would score gold against itself.")
     if not checkable:
         return
+    print(f"  alpha on these strings only: "
+          f"{krippendorff_alpha([list(complete[text].values()) for text in checkable]):.3f}")
 
     def score(name: str, picked: dict[str, str]) -> None:
-        entity = sum(1 for text in checkable
+        """Scored over `picked`'s own keys, not over every checkable string.
+
+        The majority vote has no entry for a 3-way tie, so iterating `checkable` here raised a
+        KeyError on the first tied string — and any 'fix' that silently substituted a value
+        would have credited the vote with a decision it never made. `n` is printed so the
+        denominators stay comparable.
+        """
+        texts = sorted(picked)
+        entity = sum(1 for text in texts
                      if same_entity(picked[text], human[text], description))
-        gaps = [gap for text in checkable
+        gaps = [gap for text in texts
                 if (gap := error(kcal.get(human[text]), kcal.get(picked[text]))) is not None]
         equivalent = sum(1 for gap in gaps if gap < EQUIVALENT)
         low, high = wilson(equivalent, len(gaps)) if gaps else (0.0, 0.0)
-        print(f"  {name:22} entity {100 * entity / len(checkable):5.1f}%   "
+        print(f"  {name:22} n={len(texts):3}  entity {100 * entity / len(texts):5.1f}%   "
               f"kcal-equivalent {equivalent}/{len(gaps)} = "
               f"{100 * equivalent / len(gaps) if gaps else 0:5.1f}% "
               f"[{100 * low:.0f}-{100 * high:.0f}%]")
 
     for model in ANNOTATORS:
         score(model, {text: complete[text][model] for text in checkable})
-    winners = {text: decided[text][0] for text in checkable if decided[text][0] is not None}
+    winners = {text: winner for text in checkable
+               if (winner := decided[text][0]) is not None}
     if winners:
         score("MAJORITY VOTE", winners)
-    score("current gold label", {text: labels[text]["fdc_id"] for text in checkable})
+    # Same strings the vote was scored on, so the comparison that decides whether the ensemble
+    # is an improvement is like-for-like rather than across different denominators.
+    score("CURRENT GOLD LABEL", {text: labels[text]["fdc_id"] for text in winners})
+    print("  The gold row is scored on the same strings the vote decided, so the comparison")
+    print("  that matters — is the ensemble an improvement? — is like-for-like.")
 
 
 def main() -> None:
