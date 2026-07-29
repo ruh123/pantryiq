@@ -1,8 +1,20 @@
 # Entity resolution — measured results
 
-Regenerate with `uv run python -m pantryiq.er.metrics`.
+Regenerate: `uv run python -m pantryiq.er.metrics` (recall@k) ·
+`uv run python -m pantryiq.er.nutrition` (kcal error + ambiguity ceiling) ·
+`uv run python -m pantryiq.er.convention` (rule 2b audit) ·
+`uv run python -m pantryiq.er.relabel --report --pass 1` ·
+`uv run python -m pantryiq.er.adjudicate --report`
 
-## ⚠️ Label provenance — read before quoting any number
+**If you read one thing:** the headline metric of this project is **nutrition error, not entity
+accuracy**, and the reason is measured rather than asserted — see
+[The ambiguity ceiling](#the-ambiguity-ceiling). A median ~32% kcal spread exists *within* the
+correct food, so no entity-level precision figure can carry the weight the plan originally
+assigned it.
+
+---
+
+## 1. Label provenance — read before quoting any number
 
 The 300 gold labels are **not all human-produced**:
 
@@ -11,32 +23,26 @@ The 300 gold labels are **not all human-produced**:
 | human | 18 | Independent ground truth |
 | **claude (LLM annotator)** | **282** | Model-produced, following `docs/labeling_guide.md` |
 
-This was a deliberate trade: labeling 300 strings by hand costs 8–12 hours, and the project
-owner chose LLM annotation over abandoning the metric. The consequence must be stated wherever
-these numbers appear:
+A deliberate trade: hand-labeling 300 strings costs 8–12 hours, and the project owner chose LLM
+annotation over abandoning the metric. Consequences that must travel with every number below:
 
-- **This measures agreement between the local pipeline and an LLM annotator, not accuracy
-  against human ground truth.** LLM-as-annotator is an accepted practice, but it is weaker
-  evidence, and the headline claim must say so.
-- **The 2.6 Claude adjudicator cannot be honestly evaluated against these labels.** Scoring a
-  Claude adjudicator against Claude-written labels measures self-consistency, not correctness.
-  Adjudicator accuracy must be reported on the human-labeled subset only, or not claimed.
-- **recall@k on the Claude subset is biased upward.** The annotator saw the generated candidate
-  list before deciding, so its labels lean toward entities the generator surfaces. The
-  human-labeled subset is the unbiased check — see the provenance split below.
+- **Entity-level figures measure agreement between the pipeline and an LLM annotator**, not
+  accuracy against human ground truth.
+- **A Claude adjudicator (2.6) cannot be honestly scored against these labels** — that is
+  self-consistency. Score it on human-labeled rows only, or do not claim it.
+- **recall@k on the claude subset is biased upward**: the annotator saw the candidate list
+  before deciding.
 
-Every label records its `labeler` and a `confidence` flag (215 high / 85 low). The 85
-low-confidence labels are the highest-value targets for human review.
+Every label records its `labeler` and a `confidence` flag (215 high / 85 low).
 
-**To strengthen this:** a human relabeling ~30 randomly drawn strings — without seeing the
-existing labels — would give a measured human/LLM agreement rate, converting the caveat above
-from a qualitative disclaimer into a number.
+**This section used to end with "to strengthen this, a human should relabel ~30 strings blind."
+That was done.** Sections 3–6 are the result, and it did not go the way the caveat implied.
 
-## Candidate generation (2.4)
+## 2. Candidate generation (2.4)
 
 8,187 USDA entities → ~78 candidates per ingredient string, by exact chunked cosine (no ANN)
-plus head-noun token blocking. `recall@k` is the **ceiling on everything downstream**: a
-scorer cannot pick an entity that was never shown to it.
+plus head-noun token blocking. `recall@k` is the **ceiling on everything downstream**: a scorer
+cannot pick an entity that was never shown to it.
 
 | k | recall |
 |---|---|
@@ -47,9 +53,8 @@ scorer cannot pick an entity that was never shown to it.
 | 100 | 92.0% |
 
 Null class excluded from the denominator: 36 of 300 strings (12.0%) have no reasonable USDA
-match and are labeled `no-match`. They are a real answer, not a retrieval failure —
-`bisquick`, `kitchen bouquet`, `old bay seasoning`, `orange kool-aid` genuinely are not in
-Foundation + SR Legacy.
+match and are labeled `no-match`. They are a real answer — `bisquick`, `kitchen bouquet`,
+`old bay seasoning`, `orange kool-aid` genuinely are not in Foundation + SR Legacy.
 
 ### By stratum
 
@@ -73,15 +78,14 @@ that do have candidates but retrieve poorly.
 | `token_head` (head-noun block) | 40.2% |
 
 **The A/B is close.** Reversing the facets is worth ~2pp, not the large gain assumed when the
-two text forms were introduced — the embedding is fairly robust to facet order. Token blocking
-alone is weak but cheap, and it is a genuine complement: it retrieves by exact head-noun match
-where embeddings drift semantically (`soda` → soft drinks rather than baking soda).
+two text forms were introduced. Token blocking alone is weak but cheap, and a genuine
+complement: it retrieves by exact head-noun match where embeddings drift semantically
+(`soda` → soft drinks rather than baking soda).
 
 > **Measurement bug found and fixed here.** The first version recorded a single `method` per
 > candidate — whichever generator found it *first*. Since `embed_search` was consulted first it
 > claimed nearly every row, making the other two look useless (`embed_desc` 1.1%, `token_head`
-> 0.4%) and the A/B unmeasurable. Membership is now recorded per generator as three independent
-> booleans, and the generators overlap heavily by design.
+> 0.4%) and the A/B unmeasurable. Membership is now three independent booleans.
 
 ### By label provenance
 
@@ -90,12 +94,179 @@ where embeddings drift semantically (`soda` → soft drinks rather than baking s
 | human | 17 | 88.2% | 94.1% | 94.1% |
 | claude | 247 | 67.2% | 84.2% | 90.3% |
 
-The human subset scores *higher*, which is reassuring — had the LLM labels been simply
-rubber-stamping the top candidate, the LLM subset would score near 100%. It does not. But n=17
-is far too small to draw a firm conclusion; treat this as a smoke test, not a validation.
+The human subset scores *higher*, which is reassuring — rubber-stamped labels would have put
+the LLM subset near 100%. n=17; a smoke test, not a validation.
+
+> ⚠️ **Known gap:** `recall_at_k` compares raw `fdc_id` equality, but the guide's rule 6 says
+> evaluation credits any entity sharing the gold `description_raw` (94 descriptions exist twice,
+> Foundation + SR Legacy). So these recall figures are **slightly understated**. The credit rule
+> *is* implemented for the agreement measures below. Fix in 2.5, where it must also govern
+> precision.
+
+## 3. Blind relabel, pass 1 — 36% agreement
+
+30 strings drawn uniformly from the 282 annotator-labeled ones (seed `20260729`, frozen in
+`relabel_manifest.json` before judging, population fingerprint `12a538d85d6751a7`). Judged
+without the existing label visible; `labels.jsonl` never modified. 25 judged, 5 skipped.
+
+**Agreement: 9/25 = 36.0% (95% Wilson CI 20.2–55.5%).**
+
+| Original confidence | n | agreement |
+|---|---|---|
+| high | 17 | 47.1% |
+| low | 8 | 12.5% |
+
+The annotator's own confidence flag is informative — low-confidence labels agree far less.
+
+Not an anchoring artifact: the human took the top-displayed candidate on only 11 of 25 rows
+(44%) and never used search.
+
+## 4. Adjudication of the 16 disagreements
+
+Each disagreement re-presented as **A/B in randomized order, neither attributed**, asking not
+"which do you prefer" but "which one does the guide select". Order seeded per string; every
+record keeps `shown_first` so the mapping is auditable.
+
+| Verdict | n | Meaning |
+|---|---|---|
+| guide selects the gold label | 9 | the relabel was wrong |
+| guide selects the relabel | 7 | **the gold label is wrong** |
+| genuinely ambiguous | 0 | — |
+
+**The blinding worked.** The judge overturned their *own* pass-1 choice on 9 of 16 (56%). Had
+this been self-defense in disguise it would have come back near 16/16 for the relabel.
+
+**Gold labels defensible: 18/25 = 72.0% (CI 52.4–85.7%)** → an estimated **28% error rate**
+(CI 14.3–47.6%). Even the optimistic end of that interval is far above the 5% error budget
+implied by the plan's ≥95% precision target.
+
+## 5. What the disagreements were actually about
+
+They were not random annotator noise. **Rule 1 ("prefer the least-qualified base form") assumes
+a least-qualified entry exists**, and across much of USDA it does not: every milk states a fat
+level, every pasta enriched or unenriched, every green bean raw/canned/frozen. With no tiebreak
+written down, two labelers broke it differently and *consistently* — the relabel systematically
+chose the more-qualified entry.
+
+5 of the 7 rejected labels were exactly this. 2 more were the `no-match` boundary
+(`cracked peach pit`, `sorrel and chervil`).
+
+So the guide gained **rule 2b (culinary default: full-fat, enriched, raw when the line is
+silent)** and **rule 4b (a part or derivative USDA does not carry is `no-match`; a line naming
+several foods takes the dominant one)**.
+
+> **Independent corroboration.** The [Epicure paper](https://arxiv.org/pdf/2604.22776) builds a
+> USDA FDC matching pipeline and breaks ties with a preparation-state preference order —
+> raw > fresh > dried > cooked > canned > frozen. Rule 2b is that rule, arrived at
+> independently. The convention is standard practice, not a local invention.
+
+### ⚠️ Why the improved number is not evidence
+
+Rescoring the same 25 strings under rules 2b/4b moves gold-defensible from 72.0% to
+**88.0% (CI 70.0–95.8%)**, i.e. a 12% error rate. **Do not quote that as a measurement.** The
+convention was chosen *after* seeing the disagreements it resolves, and the options presented to
+the decision-maker showed which cases each rule would vindicate. That is a rule scored on its
+own training set.
+
+Neither number is trustworthy on its own: 72% was measured with no tiebreak available to either
+labeler, and 88% was measured with the answers visible. An out-of-sample pass under the amended
+guide is drawn and frozen (`relabel_manifest2.json`, 25 strings, seed `20260730`, zero overlap
+with pass 1) but **not run** — the project owner declined further hand-labeling, and the metric
+moved to nutrition error instead. The machinery remains if that decision is revisited:
+`uv run python -m pantryiq.er.relabel --pass 2`.
+
+### Rule 2b audit over the whole gold set
+
+Automated, no human time: **13 of 264 resolved labels flagged (4.9%)** — 11 form, 2 fat;
+11 claude, 2 human. Flagged only where the labeler faced a real fork (another entry for the
+same food declaring fewer of the silent attributes), so `Spices, chervil, dried` is not flagged
+— USDA carries no raw chervil.
+
+It flags; it does not repair. An earlier version also proposed replacements and picked badly
+enough to record: `Beans, liquid from stewed kidney beans` for `kidney bean`, `Bread, wheat` for
+`corn bread`. Roughly 3 of the 13 are false positives on inspection (`condensed cream of chicken
+soup` — canned is implied by *condensed*; `karo syrup` — "light" is a corn-syrup grade, not a
+fat level).
+
+## 6. Nutrition error — the reporting unit
+
+Nothing downstream consumes an `fdc_id`; it consumes kcal per 100g. Relative gap denominated by
+the **larger** of the two values (symmetric, bounded at 100%; relative-to-gold reads a 32-vs-254
+kcal gap as 694%, which says nothing useful about a food that is mostly water), with an absolute
+floor of 5 kcal/100g.
+
+Pass 1's disagreements, priced:
+
+| Relative kcal error | pairs |
+|---|---|
+| within 10% (nutritionally equivalent) | 13 / 22 |
+| 10–25% | 0 |
+| 25–50% | 6 |
+| over 50% (materially wrong) | 3 |
+
+**Nutritional agreement: 13/22 = 59.1% (CI 38.7–76.7%)**, against 36.0% strict entity
+agreement. Plus 3 null-class disagreements, which are a coverage failure rather than a magnitude
+error.
+
+This is **not** a rescue — 9 of the 13 comparable disagreements were real, 3 of them >50%. What
+it does is stop charging full price for disputes that cost nothing: `spiral pasta`
+(enriched vs unenriched) is a **0.0%** kcal difference, `rounded tbsp flour` 0.5%,
+`pineapple juice` 5.7%, `whole tomato` 3 kcal.
+
+## The ambiguity ceiling
+
+The kcal spread among entities naming the **same food** as the gold label. Needs no labels, and
+it bounds what any precision claim can mean.
+
+| Spread within the correct food | strings |
+|---|---|
+| within 10% | 50 / 163 |
+| 10–25% | 21 / 163 |
+| 25–50% | 25 / 163 |
+| **over 50%** | **67 / 163** |
+
+**Median 31.6%**, measurable on 163 of the 264 resolved labels.
+
+`pinto bean` spans 82 kcal/100g canned to 333 dry. `beef bouillon cube` spans 3 reconstituted to
+170 dry. `clams with liquid` spans 2 to 202.
+
+**A resolver that identifies the food perfectly every time is still this far off on nutrition,
+because the ingredient line does not say which facet it means.** That is under-specification in
+the recipe text, not a modelling failure — and it is why the plan's ≥95% precision target was
+never reachable for reasons unrelated to the scorer.
+
+Read as an **upper** bound: "same food" is the two leading facets, which is right for
+`('beans','pinto')` but too coarse for `('beverages','tea')`, where it groups 33 unrelated teas.
+10 of the 163 are flagged over-grouped.
+
+> **Defect found by inspection, not by tests.** The first version reported `Beverages, tea` at
+> 100% ambiguity: the group spans 0 to 1 kcal/100g, and `|0-1|/1 = 100%`. Any group whose
+> minimum is 0 reported 100% regardless of how trivial the gap. Hence the absolute floor.
+
+## Why there is no external gold set to use instead
+
+Checked, because the labeling cost prompted the question. Human-annotated recipe corpora exist —
+[FoodBase](https://academic.oup.com/database/article/doi/10.1093/database/baz121/5611291)
+(1,000 Allrecipes recipes, 12,844 annotations, 2,105 unique entities) and
+[CafeteriaFCD](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9455825/) — but they link entities
+to **Hansard, FoodOn, SNOMED-CT and FoodEx2**: food *ontologies*, not a nutrition database.
+[FoodSEM](https://arxiv.org/abs/2509.22125), the current SOTA model for food NEL, is evaluated
+on the same ontologies. No public dataset links free-text recipe ingredient strings to USDA FDC
+ids as human ground truth.
+
+That absence is the reason this problem is worth demonstrating. FoodBase remains usable as an
+external check on the *parser/NER* layer, which is a real slice of the pipeline scored against
+someone else's annotations.
 
 ## Still to measure
 
-Precision / recall / F1 (2.5, on the frozen holdout with bootstrap CIs), % resolved without an
-LLM call on both denominators, and adjudicator accuracy (2.6) — which, per the provenance
-warning above, is only meaningful on human-labeled rows.
+- **2.5**: kcal-error bands and the ambiguity ceiling on the frozen 99-row holdout, with
+  bootstrap CIs, overall and per stratum. Entity precision/recall reported as a secondary
+  figure with the provenance caveat attached. Thresholds set on a kcal-error target, since a
+  ≥95% entity-precision target is not measurable against these labels.
+- The anchoring diagnostic from the 42 control rows.
+- `recall_at_k` corrected for the rule-6 duplicate-description credit.
+- **Multi-annotator ensemble** (agreed direction, after 2.5): relabel with 2–3 independent LLM
+  annotators, majority vote, publish Krippendorff's α, validated against the 43 human judgments
+  already collected (18 original + 25 pass-1 relabels) plus the 16 adjudications.
+- % resolved without an LLM call, on both denominators (per-occurrence and per-unique-string).

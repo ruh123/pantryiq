@@ -12,6 +12,7 @@ from pantryiq.er.relabel import (
     ensure_manifest,
     paths,
     population,
+    report,
     rows_to_judge,
     same_entity,
     wilson,
@@ -104,6 +105,29 @@ def test_each_pass_records_the_guide_it_was_judged_under(tmp_path):
         append_label(path, {**make_label(name, "1", "candidate"), "labeler": "claude"})
 
     assert ensure_manifest(tmp_path, 1)["guide"] != ensure_manifest(tmp_path, 2)["guide"]
+
+
+def test_reporting_survives_a_manifest_frozen_before_guide_was_recorded(tmp_path):
+    """Pass 1's manifest predates the `guide` field. Reading it must not crash, and the frozen
+    file must not be rewritten to add one."""
+    # Built and closed here rather than via the `con` fixture: report() opens the database
+    # read-only, which conflicts with a read-write handle on the same file in-process.
+    setup = duckdb.connect(str(tmp_path / "t.duckdb"))
+    setup.execute("CREATE SCHEMA silver")
+    setup.execute("CREATE TABLE silver.usda_foods (fdc_id VARCHAR, description_raw VARCHAR)")
+    setup.execute("INSERT INTO silver.usda_foods VALUES ('1','Egg, whole, raw'),('2','Eggnog')")
+    setup.close()
+
+    (tmp_path / "relabel_manifest.json").write_text(json.dumps({"size": 1, "strings": ["egg"]}))
+    append_label(tmp_path / "labels.jsonl", {**make_label("egg", "1", "candidate"),
+                                             "labeler": "claude"})
+    append_label(tmp_path / "relabel.jsonl", {**make_label("egg", "2", "candidate"),
+                                              "labeler": "human"})
+    before = (tmp_path / "relabel_manifest.json").read_bytes()
+
+    report(tmp_path, tmp_path / "t.duckdb", number=1)
+
+    assert (tmp_path / "relabel_manifest.json").read_bytes() == before
 
 
 def test_pass_one_keeps_its_original_filenames(tmp_path):

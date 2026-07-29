@@ -210,7 +210,10 @@ def report(out_dir: Path | str = DEFAULT_OUT, db_path: Path | str = DEFAULT_DB,
         return
 
     low, high = wilson(agreed, compared)
-    print(f"blind relabel pass {number} — judged under {manifest['guide']}")
+    # Pass 1's manifest was frozen before `guide` was recorded. Fall back to the pass config
+    # rather than rewriting a frozen manifest to add a field.
+    guide = manifest.get("guide", PASSES[number]["guide"])
+    print(f"blind relabel pass {number} — judged under {guide}")
     print(f"{compared} of {manifest['size']} drawn strings judged twice")
     print(f"human/{ANNOTATOR} agreement: {agreed}/{compared} = {100 * agreed / compared:.1f}% "
           f"(95% Wilson CI {100 * low:.1f}–{100 * high:.1f}%)")
