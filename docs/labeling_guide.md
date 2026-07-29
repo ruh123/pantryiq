@@ -43,6 +43,35 @@ invented.
 Preparation words that survived normalization (`cooked`, `dried`, `frozen`, `ground`) are
 deliberate: they change the food, so honour them.
 
+### 2b. When the line is silent but every candidate must state something
+
+Rule 1 assumes a least-qualified entry *exists*. Across much of USDA it does not: every milk
+entry states a fat level, every pasta states enriched or unenriched, every green bean states
+raw/canned/frozen. When the line says nothing about an attribute that every candidate is
+forced to declare, rule 1 returns no answer, and two labelers will break the tie differently
+and consistently. Take the **culinary default** — what the recipe means when it says nothing:
+
+| Attribute | When the line is silent, choose | Not |
+|---|---|---|
+| Fat | full-fat | `nonfat`, `low fat`, `reduced fat`, `skim`, `light` |
+| Fortification | enriched / standard | `unenriched`, `unfortified` |
+| Form | raw / unprepared | `canned`, `frozen`, `dried`, `cooked` |
+
+| Line | Correct | Not |
+|---|---|---|
+| `evaporated milk` | `Milk, canned, evaporated, with added vitamin A` | `…, nonfat, …` |
+| `spiral pasta` | `Pasta, dry, enriched` | `Pasta, dry, unenriched` |
+| `french style green bean` | `Beans, snap, green, raw` | `…, canned, regular pack, drained solids` |
+| `whole tomato` | `Tomatoes, red, ripe, raw` | `…, canned, packed in tomato juice` |
+
+`evaporated` and `dry` above are not violations — the line states them. Only attributes the
+line is *silent* about are governed here.
+
+> **Measured, not assumed (2026-07-29).** This rule exists because a blind relabel of 30 gold
+> strings agreed with the existing labels only 36% of the time, and a blind A/B adjudication of
+> the 16 disagreements traced 5 of the 7 rejected labels to exactly this gap. See
+> `docs/er_metrics.md`.
+
 ### 3. Skip babyfood, restaurant, and branded entries unless the line names them
 
 `Babyfood, …`, `Fast foods, …`, `APPLEBEE'S, …`, `GERBER …` are real USDA rows but almost never
@@ -58,6 +87,17 @@ Foundation + SR Legacy has no entry for `jell-o cherry flavor gelatin`,
 Say `no-match` when no entry is a reasonable **nutritional** stand-in. Do not stretch to a
 distant relative — a wrong match is worse than an honest gap, because a wrong match silently
 produces wrong nutrition downstream.
+
+### 4b. Parts, derivatives, and lines naming several foods
+
+Two cases where "reasonable stand-in" needs to be pinned down, because both invite stretching:
+
+- **A part or derivative USDA does not carry is `no-match`** — not its parent whole food. A
+  peach *pit* is not a peach; pickle *brine* is not a pickle; the nutrition differs by more
+  than the match would suggest. `cracked peach pit` and `juice from pickle` are `no-match`.
+- **A line naming several distinct foods takes the dominant one.** `sorrel and chervil` is
+  labeled as chervil if chervil leads the line, not `no-match` — the line does resolve to a
+  food, it just names more than one.
 
 ### 5. Tie-breaker: prefer the entry that has nutrition data
 
