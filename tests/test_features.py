@@ -69,10 +69,17 @@ def test_deprioritized_is_carried_as_a_number():
     assert row_features("egg", "Babyfood, egg yolk", 0.5, 0.5, True)["is_deprioritized"] == 1.0
 
 
-@pytest.mark.parametrize("feature", FEATURES)
-def test_every_feature_is_bounded(feature):
+def test_cosine_margin_is_zero_for_the_leader_and_negative_otherwise():
+    """The decision is relative within a string; the other features are all absolute."""
+    assert row_features("egg", "Egg, whole", 0.9, 0.8, False, 0.0)["cosine_margin"] == 0.0
+    assert row_features("egg", "Eggnog", 0.7, 0.6, False, -0.2)["cosine_margin"] == -0.2
+
+
+@pytest.mark.parametrize("feature", [f for f in FEATURES if f != "cosine_margin"])
+def test_every_absolute_feature_is_bounded(feature):
     """Unbounded features make a logistic model's coefficients uninterpretable and let one
-    candidate dominate; all seven are similarities, shares, or flags."""
+    candidate dominate; the absolute ones are similarities, shares, or flags. cosine_margin is
+    exempt by construction — it is a signed difference."""
     low = row_features("egg", "Cheese, cheddar, low fat", 0.0, 0.0, False)[feature]
     high = row_features("egg", "Egg, whole, raw, fresh", 1.0, 1.0, True)[feature]
 

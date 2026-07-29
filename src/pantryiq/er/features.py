@@ -1,8 +1,8 @@
 """Features per (ingredient string, candidate entity) — the input to 2.5's scorer.
 
-Deliberately seven features, not twenty. The training unit is the *pair*, so the 201 tune-split
+Deliberately eight features, not twenty. The training unit is the *pair*, so the 201 tune-split
 strings expand to ~15,700 rows — but only ~165 of them are positive (one gold entity per
-resolvable string), and it is the positive count that bounds how much a model can learn. Seven
+resolvable string), and it is the positive count that bounds how much a model can learn. Eight
 features against 165 positives is already generous.
 
 Each feature exists because something in the corpus demanded it:
@@ -22,6 +22,10 @@ Each feature exists because something in the corpus demanded it:
   names something (`Egg, white, dried`). Facet *count* is deliberately not used — it proved
   actively misleading, since the ordinary entry often carries MORE facets.
 - `is_deprioritized` — babyfood/restaurant/brand, 14.9% of the corpus (guide rule 3).
+- `cosine_margin` — this candidate's `cosine_search` minus the best available *for this string*.
+  The other seven are absolute, but the decision is relative: 0.7 may be the best on offer for
+  one string and mediocre for another, and a pointwise classifier cannot see that from absolute
+  values. 0.0 for the leader, negative for everything else.
 
 Run:  uv run python -m pantryiq.er.features
 """
@@ -37,7 +41,7 @@ from pantryiq.er.gold import DEFAULT_OUT
 from pantryiq.er.labeling import DEFAULT_DB, NO_MATCH, PLAIN_MODIFIERS, load_labels, load_sample
 
 FEATURES = ("cosine_search", "cosine_desc", "jaro_winkler", "token_jaccard",
-            "head_facet", "plain_facet_share", "is_deprioritized")
+            "head_facet", "plain_facet_share", "is_deprioritized", "cosine_margin")
 
 
 def tokens(text: str) -> set[str]:
@@ -84,7 +88,7 @@ def plain_facet_share(description: str) -> float:
 
 
 def row_features(line: str, description: str, cosine_search: float, cosine_desc: float,
-                 deprioritized: bool) -> dict[str, float]:
+                 deprioritized: bool, cosine_margin: float = 0.0) -> dict[str, float]:
     return {
         "cosine_search": cosine_search,
         "cosine_desc": cosine_desc,
@@ -93,6 +97,7 @@ def row_features(line: str, description: str, cosine_search: float, cosine_desc:
         "head_facet": head_facet(line, description),
         "plain_facet_share": plain_facet_share(description),
         "is_deprioritized": float(deprioritized),
+        "cosine_margin": cosine_margin,
     }
 
 
@@ -122,6 +127,12 @@ def build(db_path: Path | str = DEFAULT_DB, gold_dir: Path | str = DEFAULT_OUT) 
     finally:
         con.close()
 
+    # Best cosine per string, for the relative feature. Computed over the stored candidate set,
+    # which is exactly what the scorer sees at inference.
+    best_cosine: dict[str, float] = {}
+    for text, _, _, _, cosine_search, _, _ in rows:
+        best_cosine[text] = max(best_cosine.get(text, cosine_search), cosine_search)
+
     columns: dict[str, list] = {key: [] for key in
                                 ("normalized_text", "fdc_id", "split", "stratum", "control",
                                  "rank", "is_match", *FEATURES)}
@@ -138,7 +149,8 @@ def build(db_path: Path | str = DEFAULT_DB, gold_dir: Path | str = DEFAULT_OUT) 
         columns["rank"].append(rank)
         columns["is_match"].append(fdc_id in accept)
         for key, value in row_features(text, description, cosine_search, cosine_desc,
-                                       deprioritized).items():
+                                       deprioritized,
+                                       cosine_search - best_cosine[text]).items():
             columns[key].append(value)
     return pa.table(columns)
 
