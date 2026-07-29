@@ -257,6 +257,82 @@ def _prompt_search(con) -> tuple[str, int | None] | None:
     return None
 
 
+def label_rows(con, todo: list[dict], labels_path: Path | str,
+               extra: dict | None = None) -> bool:
+    """Judge every row in `todo`, appending one record each to `labels_path`.
+
+    `extra` is merged into each record — the blind relabel pass uses it to stamp its own
+    provenance. Returns True if the labeler quit early, so the caller can skip its summary.
+    """
+    def tag(record: dict) -> dict:
+        return {**record, **extra} if extra else record
+
+    for position, row in enumerate(todo, start=1):
+        text = row["normalized_text"]
+        control = row.get("control", False)
+        ranked = candidates_for(con, text)
+        suggested = ranked[0][0] if ranked else None
+        presentation = "scrambled" if control else "ranked"
+
+        print(f"[{position}/{len(todo)}] {row['frequency_stratum']} · "
+              f"{row['occurrence_count']} occurrences")
+        print(f"  STRING: {text!r}")
+        for line in row["example_lines"]:
+            print(f"    seen as: {line}")
+
+        # A hint, not a verdict — the judgment stays the labeler's.
+        if ranked and max(row[5] for row in ranked) < WEAK_MATCH_COSINE:
+            print("  (nothing similar in USDA — 'n' is likely right)")
+
+        shown = list(ranked[:SHORTLIST])
+        if control:
+            # No suggestion, no ranking signal — this row measures anchoring.
+            random.Random(f"scramble:{text}").shuffle(shown)
+            print("  (unranked — no suggestion on this one)")
+        _show(shown)
+        prompt = ("  [n]o-match [s]earch [m]ore [k]skip [q]uit > " if control else
+                  "  ENTER accepts 0   [n]o-match [s]earch [m]ore [k]skip [q]uit > ")
+
+        while True:
+            choice = input(prompt).strip().lower()
+            if choice == "q":
+                print(f"\nsaved {len(load_labels(labels_path))} labels to {labels_path}")
+                return True
+            if choice == "k":
+                break
+            if choice == "" and not control and shown:
+                chosen = shown[0]
+                append_label(labels_path, tag(make_label(
+                    text, chosen[0], "candidate", chosen[4], 0, presentation, suggested)))
+                break
+            if choice == "m":
+                shown = list(ranked)
+                if control:
+                    random.Random(f"scramble:{text}").shuffle(shown)
+                _show(shown)
+                continue
+            if choice == "n":
+                append_label(labels_path, tag(make_label(
+                    text, NO_MATCH, "candidate", None, None, presentation, suggested)))
+                break
+            if choice == "s":
+                picked = _prompt_search(con)
+                if picked:
+                    append_label(labels_path, tag(make_label(
+                        text, picked[0], "search", None, None, presentation, suggested)))
+                    break
+                continue
+            if choice.isdigit() and int(choice) < len(shown):
+                chosen = shown[int(choice)]
+                append_label(labels_path, tag(make_label(
+                    text, chosen[0], "candidate", chosen[4], int(choice),
+                    presentation, suggested)))
+                break
+            print("  ?")
+        print()
+    return False
+
+
 def main() -> None:
     con = duckdb.connect(str(DEFAULT_DB), read_only=True)
     labels_path = Path(DEFAULT_OUT) / "labels.jsonl"
@@ -271,70 +347,8 @@ def main() -> None:
         print("      s = search all foods   m = show more   k = skip   q = quit")
         print("rules: docs/labeling_guide.md   (~ = deprioritized: babyfood/restaurant/brand)\n")
 
-        for position, row in enumerate(todo, start=1):
-            text = row["normalized_text"]
-            control = row.get("control", False)
-            ranked = candidates_for(con, text)
-            suggested = ranked[0][0] if ranked else None
-            presentation = "scrambled" if control else "ranked"
-
-            print(f"[{position}/{len(todo)}] {row['frequency_stratum']} · "
-                  f"{row['occurrence_count']} occurrences")
-            print(f"  STRING: {text!r}")
-            for line in row["example_lines"]:
-                print(f"    seen as: {line}")
-
-            # A hint, not a verdict — the judgment stays the labeler's.
-            if ranked and max(row[5] for row in ranked) < WEAK_MATCH_COSINE:
-                print("  (nothing similar in USDA — 'n' is likely right)")
-
-            shown = list(ranked[:SHORTLIST])
-            if control:
-                # No suggestion, no ranking signal — this row measures anchoring.
-                random.Random(f"scramble:{text}").shuffle(shown)
-                print("  (unranked — no suggestion on this one)")
-            _show(shown)
-            prompt = ("  [n]o-match [s]earch [m]ore [k]skip [q]uit > " if control else
-                      "  ENTER accepts 0   [n]o-match [s]earch [m]ore [k]skip [q]uit > ")
-
-            while True:
-                choice = input(prompt).strip().lower()
-                if choice == "q":
-                    print(f"\nsaved {len(load_labels(labels_path))} labels to {labels_path}")
-                    return
-                if choice == "k":
-                    break
-                if choice == "" and not control and shown:
-                    chosen = shown[0]
-                    append_label(labels_path, make_label(
-                        text, chosen[0], "candidate", chosen[4], 0, presentation, suggested))
-                    break
-                if choice == "m":
-                    shown = list(ranked)
-                    if control:
-                        random.Random(f"scramble:{text}").shuffle(shown)
-                    _show(shown)
-                    continue
-                if choice == "n":
-                    append_label(labels_path, make_label(
-                        text, NO_MATCH, "candidate", None, None, presentation, suggested))
-                    break
-                if choice == "s":
-                    picked = _prompt_search(con)
-                    if picked:
-                        append_label(labels_path, make_label(
-                            text, picked[0], "search", None, None, presentation, suggested))
-                        break
-                    continue
-                if choice.isdigit() and int(choice) < len(shown):
-                    chosen = shown[int(choice)]
-                    append_label(labels_path, make_label(
-                        text, chosen[0], "candidate", chosen[4], int(choice),
-                        presentation, suggested))
-                    break
-                print("  ?")
-            print()
-
+        if label_rows(con, todo, labels_path):
+            return
         print(f"done — {len(load_labels(labels_path))} labels in {labels_path}")
     except (KeyboardInterrupt, EOFError):
         print(f"\ninterrupted — {len(load_labels(labels_path))} labels saved")
