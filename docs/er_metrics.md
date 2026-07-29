@@ -12,6 +12,11 @@ accuracy**, and the reason is measured rather than asserted — see
 correct food, so no entity-level precision figure can carry the weight the plan originally
 assigned it.
 
+**The 2.5 result, on the frozen holdout: 63.6% of resolved strings are nutritionally equivalent
+to the gold label (95% CI 53.2–74.0%), median kcal error 0.0%.** Eight engineered features and a
+calibrated logistic model are worth nothing measurable over taking the top embedding cosine — see
+[§7](#7-scoring-and-routing-25--the-frozen-holdout-read-once).
+
 ---
 
 ## 1. Label provenance — read before quoting any number
@@ -261,15 +266,104 @@ That absence is the reason this problem is worth demonstrating. FoodBase remains
 external check on the *parser/NER* layer, which is a real slice of the pipeline scored against
 someone else's annotations.
 
+## 7. Scoring and routing (2.5) — the frozen holdout, read once
+
+Everything fitted on the 201-string tune split and applied unchanged to the 99-string holdout:
+eight features → logistic regression → isotonic calibration → thresholds. Regenerate:
+`uv run python -m pantryiq.er.report`.
+
+### Headline
+
+| | holdout |
+|---|---|
+| **nutritionally equivalent (<10% kcal)** | **49/77 = 63.6%** (95% CI 53.2–74.0%) |
+| median relative kcal error | **0.0%** (CI 0.0–6.8%) |
+| mean relative kcal error | 19.4% (CI 12.9–26.4%) |
+| entity top-1, of strings whose gold was retrieved | 46.8% |
+| entity top-1, of all 99 holdout strings | 37.4% |
+| retrieval ceiling on this split | 90.8% |
+
+| error band | n |
+|---|---|
+| within 10% (nutritionally equivalent) | 49 |
+| 10–25% | 6 |
+| 25–50% | 9 |
+| over 50% (materially wrong) | 13 |
+
+By stratum: head 66.7% (CI 48.1–81.5), **mid 50.0%** (32.1–67.9), tail 77.3% (59.1–95.5). Mid is
+worst, the same inversion recall@k shows.
+
+**Read against the ceiling, not against 100%:** the ambiguity ceiling on these same strings is a
+median **24.3%** kcal spread *within* the correct food.
+
+### The learned scorer does not beat top-cosine
+
+| split | difference in kcal-equivalence (model − baseline) | McNemar |
+|---|---|---|
+| tune (out-of-fold) | **+3.8pp** [−0.6, +8.2] | 4 / 10, p=0.18 |
+| **holdout** | **−3.9pp** [−13.0, +3.9] | 7 / 4, p=0.549 |
+
+**The direction flipped out of sample** — which is what a noise difference does. The paired test
+at step 3b said "cannot distinguish"; the adoption decision over-read a consistent point-estimate
+direction as weak evidence, and the holdout corrected it. Eight engineered features, a logistic
+model and isotonic calibration are worth *nothing measurable* over taking the top embedding
+cosine.
+
+Switching to the baseline *because the holdout prefers it* would be selection on the holdout and
+would void the 63.6% estimate. So that figure stands as the committed pipeline's number. The
+defensible argument for shipping the simpler resolver is that the two are indistinguishable on
+**both** splits, so simplicity breaks the tie.
+
+### Routing: no confident subset, but usable failure detection
+
+On tune, the coverage/accuracy curve is flat-to-inverted at the top — the most confident 10% of
+strings scored 50%, *below* the 58.2% base rate, and the largest band meeting the plan's 90%
+target held 1.7% of strings. Raw `p(best)` correlates with nutritional equivalence at Spearman
++0.13, non-monotonic by quintile.
+
+The cause is structural: `p(best)` is driven by embedding cosine, and a high cosine says the
+**food** is right. Nutritional equivalence turns on the **facet** — canned or raw, whole or
+nonfat — whose descriptions are nearly identical, so cosine barely separates them. Same finding
+as the ambiguity ceiling, reached from the model side.
+
+Out of sample it is better than that suggests, in one direction only:
+
+| calibrated band | n | kcal-equivalent |
+|---|---|---|
+| high (≥0.69) | 44 | 68.2% |
+| mid (0.51–0.69) | 30 | 60.0% |
+| **low (<0.51)** | **11** | **9.1%** |
+
+It cannot certify correctness; it can flag likely-wrong picks. **Consequence for the plan: 2.6's
+Claude adjudicator is required, not an optimization** — there is no confident subset to skip it
+on, and the brief's "% resolved without an LLM call" has the answer *essentially none, at any
+defensible accuracy target*.
+
+### Anchoring diagnostic
+
+| presentation | n | kcal-equivalent |
+|---|---|---|
+| control (unranked, no suggestion) | 7 | 57.1% |
+| ranked | 78 | 57.7% |
+
+A clean null — no evidence the gold labels encode the ranking they were shown. n=7, so a smoke
+test rather than a validation.
+
 ## Still to measure
 
-- **2.5**: kcal-error bands and the ambiguity ceiling on the frozen 99-row holdout, with
-  bootstrap CIs, overall and per stratum. Entity precision/recall reported as a secondary
-  figure with the provenance caveat attached. Thresholds set on a kcal-error target, since a
-  ≥95% entity-precision target is not measurable against these labels.
-- The anchoring diagnostic from the 42 control rows.
-- `recall_at_k` corrected for the rule-6 duplicate-description credit.
+- **Decide whether to ship the baseline resolver instead of the model.** They are
+  indistinguishable on both splits; simplicity favours the baseline, and that argument does not
+  touch the holdout. Doing so drops sklearn, training and calibration from the inference path.
+- **2.6 Claude adjudication** — now known to be *required* rather than an optimization. Note the
+  provenance constraint: it cannot be scored against claude-produced labels (self-consistency),
+  so use the 43 human judgments only.
 - **Multi-annotator ensemble** (agreed direction, after 2.5): relabel with 2–3 independent LLM
   annotators, majority vote, publish Krippendorff's α, validated against the 43 human judgments
   already collected (18 original + 25 pass-1 relabels) plus the 16 adjudications.
-- % resolved without an LLM call, on both denominators (per-occurrence and per-unique-string).
+- % resolved *per occurrence* rather than per unique string — the head strings carry 83.5% of
+  occurrences, so the occurrence-weighted number will differ substantially from 63.6%.
+- The mid stratum is the weak point on every metric (recall@50 86.4%, holdout equivalence 50.0%).
+  Worth a targeted look at what those strings have in common.
+
+**Done since this list was written:** 2.5 (§7 above) · the anchoring diagnostic (§7) ·
+`recall_at_k` rule-6 duplicate credit (§2 — implemented, changes nothing).
