@@ -9,7 +9,8 @@ Regenerate: `uv run python -m pantryiq.er.metrics` (recall@k) ·
 `uv run python -m pantryiq.er.adjudicate --report` ·
 `uv run python -m pantryiq.er.ensemble --report` (annotator agreement) ·
 `uv run python -m pantryiq.er.adjudicator_value --report` (2.6 viability) ·
-`uv run python -m pantryiq.er.entity_map` (2.7 entity map + corpus headline)
+`uv run python -m pantryiq.er.entity_map` (2.7 entity map + corpus headline) ·
+`uv run python -m pantryiq.er.abstain` (no-match threshold)
 
 **If you read one thing:** the headline metric of this project is **nutrition error, not entity
 accuracy**, and the reason is measured rather than asserted — see
@@ -22,8 +23,9 @@ to the gold label (95% CI 53.2–74.0%), median kcal error 0.0%.** Eight enginee
 calibrated logistic model are worth nothing measurable over taking the top embedding cosine — see
 [§7](#7-scoring-and-routing-25--the-frozen-holdout-read-once).
 
-**The corpus headline (2.7): 70.1% of ingredient *occurrences* resolve to nutrition within 10%
-of the gold label** (per unique string: 62.0%) — a stratified estimate over all 9,324 strings, see
+**The corpus headline (2.7): 73.4% of ingredient *occurrences* resolve to nutrition within 10%
+of the gold label** (per unique string: 69.0%), with the resolver declining on 12.6% of
+occurrences rather than guessing (§12) — a stratified estimate over all 9,324 strings, see
 [§11](#11-the-entity-map-and-the-corpus-headline-27).
 
 **Label quality, measured: Krippendorff's α = 0.709** across three independent annotators on 120
@@ -596,6 +598,7 @@ matters. Regenerate: `uv run python -m pantryiq.er.entity_map`.
 | ingredient-line occurrences covered | **112,452 / 112,463** |
 | with an energy value | 9,108 strings (97.7%) · 109,234 occurrences (97.1%) |
 | flagged low-confidence | 2,780 strings (29.8%) · 13,780 occurrences (**12.3%**) |
+| **abstained** (no confident entity) | 2,940 strings (31.5%) · 14,176 occurrences (**12.6%**) |
 
 The 11 uncovered lines are ones whose parser output was empty — there is no string to resolve.
 
@@ -608,10 +611,15 @@ reweightings answer the two real ones:
 
 | | per unique string | per occurrence |
 |---|---|---|
-| **nutritionally equivalent (<10% kcal)** | 62.0% [53.6, 70.1] | **70.1%** [51.3, 81.6] |
-| entity top-1 | 40.7% [32.5, 49.0] | 51.6% [27.3, 68.8] |
+| **nutritionally equivalent (<10% kcal)** | 69.0% [59.9, 77.6] | **73.4%** [53.8, 84.8] |
+| entity top-1 | 47.0% [37.4, 56.6] | 54.4% [29.0, 72.1] |
 
-By stratum (unweighted, for reference): equivalence head 60.0%, mid 54.0%, tail 63.9%.
+By stratum (unweighted, for reference): equivalence head 68.1%, mid 53.1%, tail 72.6%.
+
+**These are conditional on the resolver not declining** (§12) — it abstains on 31.5% of strings
+and 12.6% of occurrences. Accuracy and coverage move in opposite directions by construction, so
+neither figure is quotable alone. Before abstention existed the same estimate read 62.0% /
+70.1%; the +7.0pp and +3.3pp are bought with the coverage above, not by better resolution.
 
 **The per-occurrence figure is the one that describes the product** — it weights each sampled
 string by how often it actually appears, and head strings carry 83.5% of all occurrences. It is
@@ -632,17 +640,73 @@ those labels, not with ground truth, and the tooling prints that caveat next to 
   `no-match` strings are flagged against **22.3%** of resolvable ones — despite the threshold
   having been fitted for nutrition error, not null detection.
 
-> **Limitation, stated in the tool's own output:** the resolver cannot emit `no-match`. It always
-> returns its best candidate, so the ~12% of strings with no real USDA entity are silently
-> assigned one. The flag is the only proxy, and the figures above are how well it happens to work
-> — not a designed capability.
+> **This section originally ended with a limitation: the resolver could not emit `no-match`, so
+> the ~12% of strings with no real USDA entity were silently assigned one.** That is fixed — see
+> §12.
+
+## 12. A fitted `no-match` threshold — letting the resolver decline
+
+§11's limitation was that the resolver always returned its best candidate, so a string with no
+real USDA entity got one anyway, producing confident wrong nutrition. Regenerate:
+`uv run python -m pantryiq.er.abstain`.
+
+### The signal is raw cosine, not the confidence curve
+
+Measured on tune, by how well each separates the null class (AUC — the probability a resolvable
+string outscores a `no-match` one):
+
+| signal | AUC |
+|---|---|
+| **raw top-1 cosine** | **0.771** |
+| calibrated confidence (fitted for *nutrition error*) | 0.764 |
+| top-1 / top-2 margin | 0.598 |
+
+The margin result is the informative one. Margin is the classic abstention signal, and it is
+nearly useless here for a reason specific to this problem: a margin is small when two candidates
+*compete*, but a `no-match` string has no good candidate at all — its whole candidate set scores
+low together. Absolute similarity carries the signal; relative similarity does not.
+
+§11 reported that the old flag caught 63.9% of the null class. That was the nutrition-fitted
+curve doing null detection by accident; this threshold is fitted for the job.
+
+### The objective is deliberately not F1
+
+Guide rule 4 states the asymmetry: *"a wrong match is worse than an honest gap, because a wrong
+match silently produces wrong nutrition downstream."* So the threshold maximizes **F2** on the
+null class — catching a null counts twice as much as avoiding a false abstention. β was fixed
+from that rule **before** the downstream effects below were measured.
+
+| rule | threshold | abstains (strings / occurrences) | null recall (CV) | resolved purity | nutrition among resolved |
+|---|---|---|---|---|---|
+| none | — | — | — | 88.1% | 56.6% |
+| F1 | 0.542 | 10.5% / 5.8% | 45.8% | 92.2% | 56.5% |
+| **F2 (shipped)** | **0.644** | 31.5% / **12.6%** | **66.7%** | **95.0%** | **62.3%** |
+
+Recall and precision are **cross-validated** — the threshold is refitted inside each fold, so
+these are what a newly fitted cut achieves on strings it has not seen, not the in-sample optimum.
+
+Two things decide it. **The occurrence view**: declining on 31.5% of the vocabulary costs only
+12.6% of what a user actually hits, the same head/tail asymmetry that runs through §11. And **F1
+buys nothing** — it improves purity but leaves nutrition among the resolved unchanged (56.6% →
+56.5%), while F2 gains +5.7pp.
+
+Null-class precision at F2 is 23.9%: roughly three of every four abstentions are on strings that
+*do* have a valid entity. That is the price rule 4 asks you to pay, stated plainly rather than
+buried in an F-score.
+
+### It is a second, independent signal — not a replacement
+
+`flagged` (isotonic confidence, fitted for nutrition error) means *"this pick may have the wrong
+facet"*. `abstained` (raw cosine, fitted for the null class) means *"this string probably has no
+USDA entity at all"*. They answer different questions and are not interchangeable. An unfitted
+threshold loads as 0.0, so the resolver behaves exactly as before until `abstain.py` has run.
 
 ## Still to measure
 - **Dry mix vs ready-to-eat** as a rule-2b extension: `chocolate pudding`, `black cherry jello`
   and `coffee creamer` all fail this way, with 2–6× kcal consequences.
-- **A `no-match` output for the resolver.** §11's limitation: it cannot decline. The confidence
-  flag catches 63.9% of the null class by accident; a threshold fitted for that purpose, or an
-  explicit abstain rule, would be a real improvement and needs no new labels to build.
+- **A holdout read for the abstain threshold.** §12 is fitted and cross-validated on tune only.
+  The holdout would confirm it, but that is a second read of the project's one clean estimate —
+  worth spending only if abstention is to be a headline claim rather than a safety feature.
 - **The 9 three-way-split strings** are the most genuinely ambiguous rows in the dataset and are
   worth reading directly — they are where the task itself, not the pipeline, is under-determined.
 
@@ -653,4 +717,4 @@ measured and rejected (§8) · the multi-annotator ensemble (§9 — measured, n
 low-confidence labels (§9 — measured; the ensemble could not improve them) · the 2.6 viability
 test (§10 — the question turned out to be structurally unanswerable against these labels) ·
 2.7, the entity map and the stratified corpus headline (§11) · occurrence-weighted equivalence
-(§11 — 70.1%, ~8pp above the per-unique-string figure).
+(§11) · a fitted no-match threshold, closing §11's stated limitation (§12).

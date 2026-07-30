@@ -5,7 +5,7 @@ strings resolved to a USDA entity with its nutrition attached, plus a confidence
 occurrence count that says how much each string actually matters.
 
 The headline is a **stratified estimate**, not an average over the gold set. The 300 gold labels
-were drawn 100/100/100 from strata holding 545 / 1,580 / 7,228 distinct strings, so the tail is
+were drawn 100/100/100 from strata holding 545 / 1,578 / 7,201 distinct strings, so the tail is
 over-sampled by roughly 70× relative to the head. Averaging the sample directly would answer "how
 does the pipeline do on the gold set", which nobody is asking. Reweighting by stratum size answers
 "how does it do on the corpus", and reweighting by *occurrences within* each stratum answers "how
@@ -16,9 +16,11 @@ Two limits stated up front, because the headline is meaningless without them:
 
 - **The estimate inherits the gold labels' quality.** §9 measured Krippendorff's α = 0.709 across
   three independent annotators. These numbers are as good as those labels and no better.
-- **The resolver cannot say `no-match`.** It always returns its best candidate, so the 12% of
-  strings that genuinely have no USDA entity are silently assigned one. The confidence flag is
-  the only proxy, and its correlation with the true null class is reported rather than assumed.
+- **The headline is scored on what the resolver does not decline.** Since the abstain threshold
+  was fitted (`er/abstain.py`), a string whose best cosine falls below it is marked `abstained`
+  and excluded from the accuracy numbers — it is no longer a claim, so scoring it as one would be
+  wrong. That necessarily *raises* accuracy while *lowering* coverage, so the two are printed
+  together and neither is quotable alone.
 
 Run:  uv run python -m pantryiq.er.entity_map
 """
@@ -42,8 +44,8 @@ STRATA = ("head", "mid", "tail")
 
 def build(db_path: Path | str = DEFAULT_DB) -> pa.Table:
     """One row per distinct ingredient string: its entity, nutrition, confidence and weight."""
-    picks = {text: (fdc_id, cosine, confidence, flagged)
-             for text, fdc_id, cosine, confidence, flagged in resolve(db_path)}
+    picks = {text: (fdc_id, cosine, confidence, flagged, abstained)
+             for text, fdc_id, cosine, confidence, flagged, abstained in resolve(db_path)}
 
     con = duckdb.connect(str(db_path), read_only=True)
     try:
@@ -60,11 +62,11 @@ def build(db_path: Path | str = DEFAULT_DB) -> pa.Table:
     columns: dict[str, list] = {key: [] for key in (
         "normalized_text", "occurrence_count", "frequency_stratum", "fdc_id", "description_raw",
         "kcal_per_100g", "protein_g", "fat_g", "carb_g", "is_deprioritized", "cosine",
-        "confidence", "flagged")}
+        "confidence", "flagged", "abstained")}
     for text, occurrences, stratum in strings:
         if text not in picks:
             continue  # no candidates were generated for this string
-        fdc_id, cosine, confidence, flagged = picks[text]
+        fdc_id, cosine, confidence, flagged, abstained = picks[text]
         description, kcal, protein, fat, carb, deprioritized = foods[fdc_id]
         for key, value in (
             ("normalized_text", text), ("occurrence_count", occurrences),
@@ -72,6 +74,7 @@ def build(db_path: Path | str = DEFAULT_DB) -> pa.Table:
             ("description_raw", description), ("kcal_per_100g", kcal), ("protein_g", protein),
             ("fat_g", fat), ("carb_g", carb), ("is_deprioritized", deprioritized),
             ("cosine", cosine), ("confidence", confidence), ("flagged", flagged),
+            ("abstained", abstained),
         ):
             columns[key].append(value)
     return pa.table(columns)
@@ -161,7 +164,8 @@ def scored_sample(db_path: Path | str = DEFAULT_DB, gold_dir: Path | str = DEFAU
         usda = con.execute(
             "SELECT fdc_id, description_raw, kcal_per_100g FROM silver.usda_foods").fetchall()
         picks = dict(con.execute(
-            "SELECT normalized_text, fdc_id FROM silver.ingredient_entity_map").fetchall())
+            "SELECT normalized_text, fdc_id FROM silver.ingredient_entity_map "
+            "WHERE NOT abstained").fetchall())
     finally:
         con.close()
     description = {row[0]: row[1] for row in usda}
@@ -211,6 +215,18 @@ def main(db_path: Path | str = DEFAULT_DB, gold_dir: Path | str = DEFAULT_OUT) -
           f"vocabulary but only {100 * flagged_occurrences / total_occurrences:.1f}% of what a "
           "user hits:\n     the hard strings are mostly rare ones.")
 
+    abstained = table.column("abstained").to_pylist()
+    abstain_count = sum(abstained)
+    abstain_occurrences = sum(o for o, value in zip(occurrences, abstained) if value)
+    print(f"  ABSTAINED (no confident USDA entity): {abstain_count:,} strings "
+          f"({100 * abstain_count / table.num_rows:.1f}%)"
+          f"  |  {abstain_occurrences:,} occurrences "
+          f"({100 * abstain_occurrences / total_occurrences:.1f}%)")
+    print(f"  -> the resolver declines on {100 * abstain_count / table.num_rows:.1f}% of the "
+          f"vocabulary but only {100 * abstain_occurrences / total_occurrences:.1f}% of what a "
+          "user hits.\n     Declining is the point: a wrong match silently produces wrong "
+          "nutrition (guide rule 4).")
+
     totals = corpus_totals(db_path)
     print("\n  corpus strata")
     for stratum in STRATA:
@@ -225,7 +241,12 @@ def main(db_path: Path | str = DEFAULT_DB, gold_dir: Path | str = DEFAULT_OUT) -
     print("\n" + "=" * 78)
     print("HEADLINE — stratified estimate over the corpus")
     print("=" * 78)
-    print(f"  from {len(sample)} gold-labeled resolvable strings, reweighted by true stratum size")
+    print(f"  from {len(sample)} gold-labeled resolvable strings the resolver did NOT decline,")
+    print("  reweighted by true stratum size.")
+    print(f"  COVERAGE: the resolver declines on {100 * abstain_count / table.num_rows:.1f}% of "
+          f"strings / {100 * abstain_occurrences / total_occurrences:.1f}% of occurrences.")
+    print("  Accuracy below is conditional on not declining — read the two together, never one")
+    print("  alone. Abstaining necessarily raises accuracy and lowers coverage.")
     for label, key in (("nutritionally equivalent (<10% kcal)", "equivalent"),
                        ("entity top-1", "entity")):
         by_stratum = {stratum: [(row["weight"], bool(row[key])) for row in sample

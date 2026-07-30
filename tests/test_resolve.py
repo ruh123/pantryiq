@@ -71,11 +71,32 @@ def test_the_stored_curve_maps_cosine_to_confidence(curve):
 
 def test_resolving_flags_low_confidence_picks(db, curve):
     rows = {text: (fdc_id, confidence, flagged)
-            for text, fdc_id, _, confidence, flagged in resolve(db, curve)}
+            for text, fdc_id, _, confidence, flagged, _ in resolve(db, curve, abstain_threshold=0.0)}
 
     assert rows["egg"][2] is False       # confidence 0.90
     assert rows["flour"][2] is True      # cosine 0.42 -> well under the cut
     assert rows["flour"][1] < LOW_CONFIDENCE
+
+
+def test_abstention_is_a_separate_signal_from_the_confidence_flag(db, curve):
+    """They answer different questions: `flagged` means "this pick may have the wrong facet",
+    `abstained` means "this string probably has no USDA entity at all". Raw cosine separates the
+    null class better than the nutrition-fitted curve, so abstention does not reuse it."""
+    rows = {text: (flagged, abstained)
+            for text, _, _, _, flagged, abstained in resolve(db, curve, abstain_threshold=0.60)}
+
+    # egg: cosine 0.95 -> confident AND not abstained
+    assert rows["egg"] == (False, False)
+    # flour: cosine 0.42 -> below both cuts
+    assert rows["flour"] == (True, True)
+
+
+def test_a_zero_threshold_never_abstains(db, curve):
+    """The stored threshold is absent until abstain.py has been run; the resolver must then
+    behave exactly as it did before rather than declining on everything."""
+    rows = resolve(db, curve, abstain_threshold=0.0)
+
+    assert not any(abstained for *_, abstained in rows)
 
 
 def test_the_curve_round_trips_through_disk(tmp_path):

@@ -28,6 +28,7 @@ from pathlib import Path
 import duckdb
 import numpy as np
 
+from pantryiq.er.abstain import load_threshold
 from pantryiq.er.gold import DEFAULT_OUT
 from pantryiq.er.labeling import DEFAULT_DB, NO_MATCH, load_labels, load_sample
 from pantryiq.er.nutrition import EQUIVALENT, error
@@ -116,13 +117,27 @@ def load_curve(path: Path | str = CURVE_PATH):
 
 
 def resolve(db_path: Path | str = DEFAULT_DB, curve_path: Path | str = CURVE_PATH,
-            strings: list[str] | None = None):
-    """[(normalized_text, fdc_id, cosine, confidence, flagged)] for every distinct string."""
+            strings: list[str] | None = None, abstain_threshold: float | None = None):
+    """[(text, fdc_id, cosine, confidence, flagged, abstained)] for every distinct string.
+
+    Two independent signals, because they answer different questions:
+
+    - `flagged` — the isotonic confidence curve, fitted for *nutrition error*. "This pick may
+      have the wrong facet."
+    - `abstained` — raw cosine below the fitted no-match threshold, fitted for the *null class*.
+      "This string probably has no USDA entity at all."
+
+    They are not interchangeable. Raw cosine separates the null class better than the confidence
+    curve does (AUC 0.771 vs 0.764), which is why abstention does not reuse the curve. `fdc_id`
+    is still reported when abstaining, so a caller can see what would have been picked; treating
+    an abstention as "no entity" is the caller's decision.
+    """
     confidence = load_curve(curve_path)
+    threshold = load_threshold() if abstain_threshold is None else abstain_threshold
     out = []
     for text, fdc_id, cosine in top_picks(db_path, strings):
         score = confidence(cosine)
-        out.append((text, fdc_id, cosine, score, score < LOW_CONFIDENCE))
+        out.append((text, fdc_id, cosine, score, score < LOW_CONFIDENCE, cosine < threshold))
     return out
 
 
@@ -143,7 +158,7 @@ def main() -> None:
 
     rows = resolve(strings=sorted(holdout))
     gaps, flagged_gaps, kept_gaps = [], [], []
-    for text, fdc_id, _, _, flagged in rows:
+    for text, fdc_id, _, _, flagged, _ in rows:
         truth = labels[text]["fdc_id"]
         if truth == NO_MATCH:
             continue

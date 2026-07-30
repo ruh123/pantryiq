@@ -15,12 +15,14 @@ in `silver.ingredient_entity_map`, covering 112,452 of the corpus's 112,463 ingr
 
 | Headline (stratified over the corpus) | per unique string | per occurrence |
 |---|---|---|
-| **nutrition within 10% of the gold label** | 62.0% [53.6, 70.1] | **70.1%** [51.3, 81.6] |
-| entity top-1 | 40.7% [32.5, 49.0] | 51.6% [27.3, 68.8] |
+| **nutrition within 10% of the gold label** | 69.0% [59.9, 77.6] | **73.4%** [53.8, 84.8] |
+| entity top-1 | 47.0% [37.4, 56.6] | 54.4% [29.0, 72.1] |
 
 The per-occurrence column is the one that describes the product: head strings are 5.8% of the
-vocabulary but 83.5% of what a user actually hits. Both figures are estimates of agreement with
-the gold labels — see the caveat below.
+vocabulary but 83.5% of what a user actually hits. Accuracy is **conditional on the resolver not
+declining** — it abstains on 12.6% of occurrences rather than guessing, and the two numbers move
+in opposite directions by construction, so neither is quotable alone. Both are estimates of
+agreement with the gold labels — see the caveat below.
 
 Three results that shaped the build, each measured rather than assumed:
 
@@ -34,6 +36,9 @@ Three results that shaped the build, each measured rather than assumed:
 - **Label quality is measured, not asserted.** Three independent LLM annotators over 120 strings
   give **Krippendorff's α = 0.709** — usable for directional claims, not precise ones. An
   ensemble could not improve the existing labels, so they were left in place.
+- **The resolver declines rather than guessing.** ~12% of ingredient strings have no USDA entity
+  at all; a threshold fitted for that (not reused from the confidence curve) catches two-thirds
+  of them, because a wrong match silently produces wrong nutrition where an honest gap does not.
 
 > ⚠️ 282 of the 300 gold labels were produced by an LLM annotator rather than a human. Every
 > number above measures agreement with those labels, not with ground truth. Read
@@ -66,6 +71,7 @@ uv run python -m pantryiq.silver.ingredient_lines   # -> silver.recipe_ingredien
 uv run python -m pantryiq.silver.usda_foods         # -> silver.usda_foods
 uv run python -m pantryiq.er.candidates             # -> silver.ingredient_candidates
 uv run python -m pantryiq.er.resolve                # fit the confidence curve
+uv run python -m pantryiq.er.abstain                # fit the no-match threshold
 uv run python -m pantryiq.er.entity_map             # -> silver.ingredient_entity_map + headline
 ```
 
