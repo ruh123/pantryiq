@@ -7,7 +7,8 @@ Regenerate: `uv run python -m pantryiq.er.metrics` (recall@k) ·
 `uv run python -m pantryiq.er.resolve` (shipped resolver) ·
 `uv run python -m pantryiq.er.relabel --report --pass 1` ·
 `uv run python -m pantryiq.er.adjudicate --report` ·
-`uv run python -m pantryiq.er.ensemble --report` (annotator agreement)
+`uv run python -m pantryiq.er.ensemble --report` (annotator agreement) ·
+`uv run python -m pantryiq.er.adjudicator_value --report` (2.6 viability)
 
 **If you read one thing:** the headline metric of this project is **nutrition error, not entity
 accuracy**, and the reason is measured rather than asserted — see
@@ -513,18 +514,81 @@ minimum cacheable prefix is 4,096 tokens and the rules prefix is ~1,800, so all 
 at full rate while the other two cache theirs. And every judgment records which guide rule the
 annotator applied, giving a per-rule audit trail of what actually decided each call.
 
+## 10. Is 2.6 worth building? — the question is structurally unanswerable here
+
+Built to decide whether to write 2.6's Claude adjudicator, using `claude-opus-5` (the strongest
+annotator in §9) paired against the shipped resolver on the 201-string tune split. Regenerate:
+`uv run python -m pantryiq.er.adjudicator_value --report`.
+
+**It returns a non-answer, and that is the finding.**
+
+### The test's own premise was wrong
+
+It rested on a paired-design argument: both arms are scored against the same contested gold, so
+shared label error cancels in the difference. That holds only when the error is *shared*. Here it
+is **correlated with one arm**. 166 of the 177 comparable tune labels were produced by a Claude
+annotator following this same guide, so a Claude adjudicator re-running that process agrees with
+them because it *is* the process that made them — while the resolver uses embeddings, an
+independent method, and necessarily looks worse.
+
+| vs annotator-produced gold (n=177) | resolver | adjudicator | difference |
+|---|---|---|---|
+| entity top-1 | 36.2% | 78.5% | **+42.4pp** [+35.0, +49.7], p < 0.0001 |
+| kcal-equivalent | 59.1% | 92.1% | **+32.9pp** [+26.2, +40.2], p < 0.0001 |
+
+**Those numbers measure self-consistency, not correctness.** §1 stated the constraint before any
+of this was built: *"A Claude adjudicator cannot be honestly scored against these labels."* The
+trap was documented and walked into anyway, which is why the invalid figures are printed here
+rather than deleted — a reader who tries the same test should recognise the shape of the result.
+
+### The valid comparison has no power
+
+Against the blind human relabels — the only independent reference — the tune split overlaps just
+**11** strings (9 with kcal on both sides):
+
+| vs independent human judgment (n=11) | resolver | adjudicator | difference | p |
+|---|---|---|---|---|
+| entity top-1 | 27.3% | 45.5% | +18.2pp [−18.2, +54.5] | 0.63 |
+| kcal-equivalent | 33.3% | 44.4% | +11.1pp [−22.2, +44.4] | 1.00 |
+
+**Underpowered, not negative.** At n=11 no effect of any plausible size would reach significance;
+this is not evidence that an adjudicator fails to help.
+
+> **A second bug, caught after the first.** `compare()` scored every section against the gold
+> label, so filtering rows to those *with* a human judgment left the reference standard unchanged
+> — the section headed "the only valid comparison" was printing self-consistency on a subset
+> (+54.5pp instead of +18.2pp). The reference is now an explicit argument, and a regression test
+> flips it on identical rows to prove opposite verdicts come out.
+
+### What is measurable without ground truth
+
+The resolver and the adjudicator are **genuinely independent methods** — embeddings versus an LLM
+reading the guide. They agree on only **69/177 (39.0%)** of tune strings, and **11/41 (26.8%)**
+inside the resolver's own low-confidence band.
+
+That disagreement flags contested strings *without needing to know which arm is right*. It is the
+one use of an adjudicator this label set can support, and it suits the product better than "the
+LLM fixes the answer" did: §7's ambiguity ceiling already showed that a large share of these
+strings are under-determined by the recipe text, and a flag is the honest response to that.
+
+### Conclusion
+
+**2.6's accuracy is structurally unmeasurable against the current gold set** — not merely
+unmeasured. Resolving it needs more independent human judgments, which the project has ruled out
+(see the working agreement). Build 2.6 if desired, but it **cannot be claimed to improve
+accuracy** on this evidence. Building it as a *disagreement flag* rather than a corrector is
+defensible today and needs no reference labels.
+
 ## Still to measure
 
-- **Whether 2.6 is worth building at all** — the paired tune-split test described in §9. Do this
-  before writing the adjudicator. Note the standing provenance constraint: an adjudicator cannot
-  be scored against claude-produced labels, so the 25 independent human judgments are the only
-  honest yardstick.
 - **2.7** — assemble `silver.ingredient_entity_map` over all 9,324 strings and publish the
   headline. This is the deliverable that makes the work demonstrable rather than a set of
   measurements.
 - **Occurrence-weighted equivalence.** Head strings carry 83.5% of all ingredient occurrences and
   score better than mid, so the per-occurrence figure will differ substantially from 63.6% —
-  probably upward. The brief asks for both denominators.
+  probably upward. The brief asks for both denominators, and the gold set is a stratified sample
+  with known stratum sizes, so the correct treatment is a stratified estimate rather than a raw
+  average.
 - **Dry mix vs ready-to-eat** as a rule-2b extension: `chocolate pudding`, `black cherry jello`
   and `coffee creamer` all fail this way, with 2–6× kcal consequences.
 - **The 9 three-way-split strings** are the most genuinely ambiguous rows in the dataset and are
@@ -534,4 +598,5 @@ annotator applied, giving a per-rule audit trail of what actually decided each c
 investigation, which found frequency was the wrong axis (§8) · the anchoring diagnostic (§7) ·
 `recall_at_k` rule-6 duplicate credit (§2 — implemented, changes nothing) · deprioritization fix
 measured and rejected (§8) · the multi-annotator ensemble (§9 — measured, not promoted) · the 85
-low-confidence labels (§9 — measured; the ensemble could not improve them).
+low-confidence labels (§9 — measured; the ensemble could not improve them) · the 2.6 viability
+test (§10 — the question turned out to be structurally unanswerable against these labels).
