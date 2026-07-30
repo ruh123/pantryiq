@@ -256,21 +256,29 @@ def load_judgments(path: Path | str) -> dict[tuple[str, str], dict]:
                            path.read_text(encoding="utf-8").splitlines() if line.strip())}
 
 
-async def run(gold_dir: Path | str = DEFAULT_OUT, db_path: Path | str = DEFAULT_DB) -> None:
+async def run(gold_dir: Path | str = DEFAULT_OUT, db_path: Path | str = DEFAULT_DB,
+              strings: list[str] | None = None,
+              annotators: tuple[str, ...] = ANNOTATORS) -> None:
+    """Annotate `strings` (default: `targets()`) with `annotators`, resumably.
+
+    Judgments are keyed by (string, annotator) in one shared file, so a later run with a
+    different string set or a single annotator reuses everything already on disk rather than
+    paying for it again.
+    """
     from anthropic import AsyncAnthropic
 
-    strings = targets(gold_dir)
+    strings = targets(gold_dir) if strings is None else strings
     candidates = load_candidates(db_path, strings)
     rows = {row["normalized_text"]: row for row in load_sample(gold_dir)}
     system = system_prompt(guide_rules())
     path = Path(gold_dir) / OUTPUT
     done = load_judgments(path)
 
-    todo = [(text, model) for text in strings for model in ANNOTATORS
+    todo = [(text, model) for text in strings for model in annotators
             if (text, model) not in done and text in candidates]
-    print(f"{len(strings)} strings x {len(ANNOTATORS)} annotators = "
-          f"{len(strings) * len(ANNOTATORS)} judgments; {len(done)} already done, "
-          f"{len(todo)} to run")
+    print(f"{len(strings)} strings x {len(annotators)} annotator(s) = "
+          f"{len(strings) * len(annotators)} judgments; "
+          f"{len(strings) * len(annotators) - len(todo)} already on disk, {len(todo)} to run")
     if not todo:
         return
 
