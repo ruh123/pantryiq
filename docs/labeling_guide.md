@@ -127,8 +127,12 @@ is reproducible:
 | Stratum | Definition | Distinct in corpus | Sampled |
 |---|---|---|---|
 | head | ≥ 20 occurrences | 545 | 100 |
-| mid | 3–19 occurrences | 1,580 | 100 |
-| tail | 1–2 occurrences | 7,228 | 100 |
+| mid | 3–19 occurrences | 1,578 | 100 |
+| tail | 1–2 occurrences | 7,201 | 100 |
+
+> Corrected 2026-07-30 while building 2.7: mid/tail previously read 1,580 and 7,228, summing to
+> 9,353 against an actual 9,324 distinct strings. The 2.7 headline reweights by these stratum
+> sizes, so they are load-bearing rather than descriptive.
 
 > **Reduced from 500 on 2026-07-24.** 500 labels proved to cost 8–12 hours of human judgment,
 > not the ~90 minutes originally estimated. The reduced set is a *prefix* of the original
