@@ -8,7 +8,8 @@ Regenerate: `uv run python -m pantryiq.er.metrics` (recall@k) ·
 `uv run python -m pantryiq.er.relabel --report --pass 1` ·
 `uv run python -m pantryiq.er.adjudicate --report` ·
 `uv run python -m pantryiq.er.ensemble --report` (annotator agreement) ·
-`uv run python -m pantryiq.er.adjudicator_value --report` (2.6 viability)
+`uv run python -m pantryiq.er.adjudicator_value --report` (2.6 viability) ·
+`uv run python -m pantryiq.er.entity_map` (2.7 entity map + corpus headline)
 
 **If you read one thing:** the headline metric of this project is **nutrition error, not entity
 accuracy**, and the reason is measured rather than asserted — see
@@ -20,6 +21,10 @@ assigned it.
 to the gold label (95% CI 53.2–74.0%), median kcal error 0.0%.** Eight engineered features and a
 calibrated logistic model are worth nothing measurable over taking the top embedding cosine — see
 [§7](#7-scoring-and-routing-25--the-frozen-holdout-read-once).
+
+**The corpus headline (2.7): 70.1% of ingredient *occurrences* resolve to nutrition within 10%
+of the gold label** (per unique string: 62.0%) — a stratified estimate over all 9,324 strings, see
+[§11](#11-the-entity-map-and-the-corpus-headline-27).
 
 **Label quality, measured: Krippendorff's α = 0.709** across three independent annotators on 120
 strings ([§9](#9-multi-annotator-ensemble--α--0709-and-it-does-not-beat-the-gold-labels)). Usable
@@ -579,18 +584,65 @@ unmeasured. Resolving it needs more independent human judgments, which the proje
 accuracy** on this evidence. Building it as a *disagreement flag* rather than a corrector is
 defensible today and needs no reference labels.
 
-## Still to measure
+## 11. The entity map and the corpus headline (2.7)
 
-- **2.7** — assemble `silver.ingredient_entity_map` over all 9,324 strings and publish the
-  headline. This is the deliverable that makes the work demonstrable rather than a set of
-  measurements.
-- **Occurrence-weighted equivalence.** Head strings carry 83.5% of all ingredient occurrences and
-  score better than mid, so the per-occurrence figure will differ substantially from 63.6% —
-  probably upward. The brief asks for both denominators, and the gold set is a stratified sample
-  with known stratum sizes, so the correct treatment is a stratified estimate rather than a raw
-  average.
+`silver.ingredient_entity_map` — every distinct ingredient string resolved to a USDA entity with
+its nutrition, a confidence score and flag, and the occurrence count that says how much it
+matters. Regenerate: `uv run python -m pantryiq.er.entity_map`.
+
+| | |
+|---|---|
+| strings resolved | **9,324 / 9,324** |
+| ingredient-line occurrences covered | **112,452 / 112,463** |
+| with an energy value | 9,108 strings (97.7%) · 109,234 occurrences (97.1%) |
+| flagged low-confidence | 2,780 strings (29.8%) · 13,780 occurrences (**12.3%**) |
+
+The 11 uncovered lines are ones whose parser output was empty — there is no string to resolve.
+
+### The headline is a stratified estimate, not a sample average
+
+The gold set was drawn 100/100/100 from strata holding **545 / 1,578 / 7,201** distinct strings,
+so the tail is over-sampled by roughly 70× relative to the head. Averaging the 300 labels directly
+answers "how does the pipeline do on the gold set", which is not a question anyone has. Two
+reweightings answer the two real ones:
+
+| | per unique string | per occurrence |
+|---|---|---|
+| **nutritionally equivalent (<10% kcal)** | 62.0% [53.6, 70.1] | **70.1%** [51.3, 81.6] |
+| entity top-1 | 40.7% [32.5, 49.0] | 51.6% [27.3, 68.8] |
+
+By stratum (unweighted, for reference): equivalence head 60.0%, mid 54.0%, tail 63.9%.
+
+**The per-occurrence figure is the one that describes the product** — it weights each sampled
+string by how often it actually appears, and head strings carry 83.5% of all occurrences. It is
+~8pp better than the per-string number for exactly that reason. Its interval is wide because the
+weighting concentrates on a handful of very frequent strings; that is a real limit of a 300-label
+sample, reported rather than smoothed.
+
+**Both figures inherit the gold labels' quality.** α = 0.709 (§9). They estimate agreement with
+those labels, not with ground truth, and the tooling prints that caveat next to the numbers.
+
+### Two findings from building it
+
+- **Flagged strings are 29.8% of the vocabulary but only 12.3% of occurrences.** The hard strings
+  are overwhelmingly rare ones, so the experience of using the map is better than the
+  vocabulary-level numbers suggest. This is the same head/tail asymmetry that makes the two
+  denominators diverge, showing up in coverage instead of accuracy.
+- **The confidence flag detects the null class**, which §7 never tested: **63.9%** of gold
+  `no-match` strings are flagged against **22.3%** of resolvable ones — despite the threshold
+  having been fitted for nutrition error, not null detection.
+
+> **Limitation, stated in the tool's own output:** the resolver cannot emit `no-match`. It always
+> returns its best candidate, so the ~12% of strings with no real USDA entity are silently
+> assigned one. The flag is the only proxy, and the figures above are how well it happens to work
+> — not a designed capability.
+
+## Still to measure
 - **Dry mix vs ready-to-eat** as a rule-2b extension: `chocolate pudding`, `black cherry jello`
   and `coffee creamer` all fail this way, with 2–6× kcal consequences.
+- **A `no-match` output for the resolver.** §11's limitation: it cannot decline. The confidence
+  flag catches 63.9% of the null class by accident; a threshold fitted for that purpose, or an
+  explicit abstain rule, would be a real improvement and needs no new labels to build.
 - **The 9 three-way-split strings** are the most genuinely ambiguous rows in the dataset and are
   worth reading directly — they are where the task itself, not the pipeline, is under-determined.
 
@@ -599,4 +651,6 @@ investigation, which found frequency was the wrong axis (§8) · the anchoring d
 `recall_at_k` rule-6 duplicate credit (§2 — implemented, changes nothing) · deprioritization fix
 measured and rejected (§8) · the multi-annotator ensemble (§9 — measured, not promoted) · the 85
 low-confidence labels (§9 — measured; the ensemble could not improve them) · the 2.6 viability
-test (§10 — the question turned out to be structurally unanswerable against these labels).
+test (§10 — the question turned out to be structurally unanswerable against these labels) ·
+2.7, the entity map and the stratified corpus headline (§11) · occurrence-weighted equivalence
+(§11 — 70.1%, ~8pp above the per-unique-string figure).
