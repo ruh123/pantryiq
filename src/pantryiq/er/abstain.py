@@ -5,14 +5,18 @@ real USDA entity are silently assigned one, producing confident wrong nutrition.
 flag caught 63.9% of them by accident, but that curve was fitted for *nutrition error*, which is
 a different target.
 
-Three choices, each measured rather than assumed:
+Three choices:
 
-- **The signal is raw cosine, not the calibrated confidence.** On the tune split, raw cosine
-  separates the null class at AUC 0.771 against the confidence curve's 0.764 and the top-1/top-2
-  margin's 0.598. Margin is the classic abstention signal and it is nearly useless here, for a
-  reason specific to this problem: a margin is small when two candidates *compete*, but a
-  `no-match` string has no good candidate at all, so its whole candidate set scores low together.
-  Absolute similarity is the thing that carries the signal.
+- **The signal is raw cosine, not the calibrated confidence.** This one is an identity, not a
+  measurement: the confidence curve is an *isotonic* fit of cosine, so it is a monotone transform
+  of it and cannot rank the null class better — only coarser. The stored curve has 8 distinct
+  output values, and the whole AUC gap (0.771 vs 0.764 on tune) is ties scored at 0.5. Cosine is
+  used because it is continuous, not because it is a better signal.
+  The measured comparison is against the **top-1/top-2 margin at AUC 0.598**, which is a genuinely
+  different signal and is nearly useless here for a reason specific to this problem: a margin is
+  small when two candidates *compete*, but a `no-match` string has no good candidate at all, so
+  its whole candidate set scores low together. Absolute similarity carries the signal; relative
+  similarity does not.
 - **The objective is F-beta on the null class, with beta > 1 by default.** Guide rule 4 states
   the asymmetry: "a wrong match is worse than an honest gap, because a wrong match silently
   produces wrong nutrition downstream." Beta = 2 weights catching a null twice as heavily as
@@ -170,8 +174,10 @@ def main() -> None:
                 cv_null_recall=round(recall, 4), cv_null_precision=round(precision, 4),
                 cv_abstain_rate=round(abstain_rate, 4))
     print(f"\nsaved F{BETA:.0f} threshold {chosen:.3f} -> {path}")
-    print("The old flag used the nutrition-fitted confidence curve (AUC 0.764); raw cosine "
-          "separates\nthe null class better (AUC 0.771) and is what this threshold applies to.")
+    print("This threshold applies to raw cosine. The confidence curve is an isotonic (monotone)\n"
+          "transform of cosine, so it carries the same ranking at 8-step resolution and cannot\n"
+          "separate the null class better — cosine is used because it is continuous. The real\n"
+          "comparison is the top-1/top-2 margin (AUC 0.598), which is a different signal.")
 
 
 if __name__ == "__main__":

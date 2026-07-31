@@ -64,7 +64,7 @@
 {"normalized_text": "green onion", "occurrence_count": 384, "frequency_stratum": "head", "split": "tune", "example_lines": ["1 1/2 Tbsp. minced green onion", "1 1/2 c. chopped green onions", "1 1/2 tsp. chopped green onion"], "control": false}
 {"normalized_text": "whole egg", "occurrence_count": 36, "frequency_stratum": "head", "split": "tune", "example_lines": ["1 whole egg", "1/2 lb. whole eggs", "2 whole eggs"], "control": false}
 {"normalized_text": "cream of celery soup", "occurrence_count": 152, "frequency_stratum": "head", "split": "holdout", "example_lines": ["1 (10 1/2 oz.) can cream of celery soup", "1 (10 3/4 oz.) can cream of celery soup", "1 (10 oz.) can cream of celery soup"], "control": false}
-{"normalized_text": "oreo cooky", "occurrence_count": 36, "frequency_stratum": "head", "split": "tune", "example_lines": ["1 (1 1/4 lb.) pkg. Oreo cookies", "1 (1.25 lb.) pkg. Oreo cookies", "1 (15 oz.) pkg. Oreo cookies, crumbled"], "control": true}
+{"normalized_text": "oreo cookie", "occurrence_count": 36, "frequency_stratum": "head", "split": "tune", "example_lines": ["1 (1 1/4 lb.) pkg. Oreo cookies", "1 (1.25 lb.) pkg. Oreo cookies", "1 (15 oz.) pkg. Oreo cookies, crumbled"], "control": true}
 {"normalized_text": "marshmallow", "occurrence_count": 83, "frequency_stratum": "head", "split": "tune", "example_lines": ["1 (1 lb.) bag marshmallows (colored if desired)", "1 (10 oz.) or 1 lb. pkg. large marshmallows", "1 (10 oz.) pkg. marshmallows"], "control": false}
 {"normalized_text": "tomato sauce", "occurrence_count": 334, "frequency_stratum": "head", "split": "holdout", "example_lines": ["1 (10 oz.) can tomato sauce", "1 (15 oz.) can tomato sauce", "1 (15 oz.) can tomato sauce or barbecue sauce"], "control": false}
 {"normalized_text": "spaghetti sauce", "occurrence_count": 62, "frequency_stratum": "head", "split": "tune", "example_lines": ["1 (14 oz.) jar spaghetti sauce", "1 (15 1/4 oz.) jar spaghetti sauce", "1 (15 oz.) jar spaghetti sauce"], "control": false}
@@ -115,7 +115,7 @@
 {"normalized_text": "processed american cheese", "occurrence_count": 3, "frequency_stratum": "mid", "split": "holdout", "example_lines": ["1 1/2 c. (6 oz.) shredded processed American cheese", "1 lb. processed American cheese, cubed", "8 slices processed American cheese"], "control": false}
 {"normalized_text": "oyster", "occurrence_count": 12, "frequency_stratum": "mid", "split": "tune", "example_lines": ["1 (16 oz.) cup fresh oysters", "1 1/2 oz. container oysters", "1 pt. oysters"], "control": true}
 {"normalized_text": "hot tap water", "occurrence_count": 3, "frequency_stratum": "mid", "split": "tune", "example_lines": ["1 3/4 c. hot tap water", "1/2 c. very hot tap water", "3/4 c. hot tap water"], "control": false}
-{"normalized_text": "garlic to", "occurrence_count": 15, "frequency_stratum": "mid", "split": "holdout", "example_lines": ["Minced garlic to taste", "garlic (fresh or powdered) to taste", "garlic to taste"], "control": false}
+{"normalized_text": "garlic", "occurrence_count": 15, "frequency_stratum": "head", "split": "holdout", "example_lines": ["Minced garlic to taste", "garlic (fresh or powdered) to taste", "garlic to taste"], "control": false}
 {"normalized_text": "dark karo syrup", "occurrence_count": 9, "frequency_stratum": "mid", "split": "tune", "example_lines": ["1 1/4 c. dark Karo syrup", "1 c. dark Karo syrup", "1/2 c. dark Karo syrup"], "control": false}
 {"normalized_text": "philly cream cheese", "occurrence_count": 5, "frequency_stratum": "mid", "split": "tune", "example_lines": ["1 (8 oz.) stick Philly cream cheese", "1 pkg. Philly cream cheese", "2 (8 oz.) Philly cream cheese"], "control": true}
 {"normalized_text": "juice and rind of orange", "occurrence_count": 3, "frequency_stratum": "mid", "split": "holdout", "example_lines": ["juice and grated rind of 1 orange", "juice and rind of 1 orange"], "control": true}
@@ -185,7 +185,7 @@
 {"normalized_text": "peas and carrot", "occurrence_count": 5, "frequency_stratum": "mid", "split": "tune", "example_lines": ["1 (16 oz.) can peas and carrots, drained", "1 can peas and carrots", "1 can peas and carrots, drained"], "control": false}
 {"normalized_text": "crisco shortening", "occurrence_count": 16, "frequency_stratum": "mid", "split": "tune", "example_lines": ["1 c. Crisco shortening", "1 c. melted Crisco shortening", "1/2 c. Crisco shortening"], "control": false}
 {"normalized_text": "texas pete", "occurrence_count": 3, "frequency_stratum": "mid", "split": "holdout", "example_lines": ["1 small bottle Texas Pete", "1 tsp. Texas Pete"], "control": false}
-{"normalized_text": "frozen mixed veggy", "occurrence_count": 3, "frequency_stratum": "mid", "split": "tune", "example_lines": ["1 (10 oz.) pkg. frozen mixed veggies", "1 (20 oz.) pkg. frozen mixed veggies", "1 bag frozen (steamed) mixed veggies"], "control": false}
+{"normalized_text": "frozen mixed veggie", "occurrence_count": 3, "frequency_stratum": "mid", "split": "tune", "example_lines": ["1 (10 oz.) pkg. frozen mixed veggies", "1 (20 oz.) pkg. frozen mixed veggies", "1 bag frozen (steamed) mixed veggies"], "control": false}
 {"normalized_text": "fine onion", "occurrence_count": 4, "frequency_stratum": "mid", "split": "tune", "example_lines": ["1/2 c. fine chopped onion", "1/2 c. fine chopped onions", "2 c. chopped fine onions"], "control": false}
 {"normalized_text": "fettucine", "occurrence_count": 5, "frequency_stratum": "mid", "split": "holdout", "example_lines": ["1 box fettucine", "1 lb. fresh fettucine", "1 pkg. fettucine (or other pasta)"], "control": false}
 {"normalized_text": "dried parsley flake", "occurrence_count": 13, "frequency_stratum": "mid", "split": "tune", "example_lines": ["1 Tbsp. dried parsley flakes", "1 tsp. dried parsley flakes", "1/3 c. dried parsley flakes"], "control": false}
@@ -204,10 +204,10 @@
 {"normalized_text": "spanish olive", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1/2 c. Spanish olives, drained"], "control": false}
 {"normalized_text": "stock pot full chicken broth", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1 stock pot full chicken broth, boiling"], "control": false}
 {"normalized_text": "cracked peach pit", "occurrence_count": 1, "frequency_stratum": "tail", "split": "holdout", "example_lines": ["2 cracked peach pits"], "control": false}
-{"normalized_text": "milk to thin", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["milk to thin or cornstarch to thicken"], "control": false}
+{"normalized_text": "milk thin", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["milk to thin or cornstarch to thicken"], "control": false}
 {"normalized_text": "x oz can pineapple", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1 X 13 1/2 oz. can Crushed pineapple"], "control": false}
 {"normalized_text": "chocolate flavored drink mix", "occurrence_count": 1, "frequency_stratum": "tail", "split": "holdout", "example_lines": ["1 (2 lb.) box chocolate flavored drink mix"], "control": false}
-{"normalized_text": "-oz pkg cream cheese", "occurrence_count": 2, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1 8-oz. pkg. cream cheese", "1 8-oz. pkg. cream cheese, softened"], "control": false}
+{"normalized_text": "cream cheese", "occurrence_count": 2, "frequency_stratum": "head", "split": "tune", "example_lines": ["1 8-oz. pkg. cream cheese", "1 8-oz. pkg. cream cheese, softened"], "control": false}
 {"normalized_text": "jimmy dean sausage", "occurrence_count": 2, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1 lb. Jimmy Dean Sausage", "1 pkg. Jimmy Dean sausage"], "control": false}
 {"normalized_text": "dry black-eyed pea", "occurrence_count": 2, "frequency_stratum": "tail", "split": "holdout", "example_lines": ["1 c. dry black-eyed peas", "1/2 lb. dry black-eyed peas"], "control": false}
 {"normalized_text": "single serving size envelope instant creamy chicken soup mix", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1 single serving size envelope instant creamy chicken soup mix"], "control": false}
@@ -220,9 +220,9 @@
 {"normalized_text": "refrigerated", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1 bag (1 1/2 lb.) refrigerated, ready-to-cook red potatoes"], "control": false}
 {"normalized_text": "coconut topping and vanilla cream filling", "occurrence_count": 1, "frequency_stratum": "tail", "split": "holdout", "example_lines": ["coconut topping and vanilla cream filling"], "control": false}
 {"normalized_text": "rich milk", "occurrence_count": 2, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1 c. extra rich milk", "1 c. rich milk (half and half)"], "control": false}
-{"normalized_text": "to c pecan", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1/2 c to 1 c. chopped pecans"], "control": false}
+{"normalized_text": "pecan", "occurrence_count": 1, "frequency_stratum": "head", "split": "tune", "example_lines": ["1/2 c to 1 c. chopped pecans"], "control": false}
 {"normalized_text": "minus tbsp water and food coloring", "occurrence_count": 1, "frequency_stratum": "tail", "split": "holdout", "example_lines": ["1 c. minus 1 Tbsp. water and food coloring"], "control": false}
-{"normalized_text": "mayonnaise to give good dipping consistency", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["mayonnaise to give good dipping consistency (about 2 c.)"], "control": false}
+{"normalized_text": "mayonnaise give good dipping consistency", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["mayonnaise to give good dipping consistency (about 2 c.)"], "control": false}
 {"normalized_text": "thawed broccoli", "occurrence_count": 2, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1 (10 oz.) box thawed broccoli", "1 pkg. thawed broccoli, chopped"], "control": false}
 {"normalized_text": "pecans for topping", "occurrence_count": 1, "frequency_stratum": "tail", "split": "holdout", "example_lines": ["chopped pecans for topping"], "control": false}
 {"normalized_text": "no-salt-added green bean", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1 (16 oz.) can no-salt-added green beans, drained"], "control": false}
@@ -231,7 +231,7 @@
 {"normalized_text": "squid", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1 lb. squid, cleaned"], "control": false}
 {"normalized_text": "frozen mustard green", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1 (16 oz.) pkg. frozen mustard greens, chopped"], "control": false}
 {"normalized_text": "juice from pickle", "occurrence_count": 1, "frequency_stratum": "tail", "split": "holdout", "example_lines": ["1/4 c. juice from pickles"], "control": false}
-{"normalized_text": "tomatoes to", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["finely chopped tomatoes to taste"], "control": false}
+{"normalized_text": "tomato", "occurrence_count": 1, "frequency_stratum": "head", "split": "tune", "example_lines": ["finely chopped tomatoes to taste"], "control": false}
 {"normalized_text": "blintze", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1 doz. blintzes (cheese or fruit)"], "control": false}
 {"normalized_text": "crystallized cherry", "occurrence_count": 1, "frequency_stratum": "tail", "split": "holdout", "example_lines": ["1/2 lb. crystallized cherries, cut up"], "control": false}
 {"normalized_text": "miniature semi-sweet chocolate piece", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1/4 c. miniature semi-sweet chocolate pieces"], "control": true}
@@ -243,8 +243,8 @@
 {"normalized_text": "salt meat", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["salt meat or ham bone"], "control": false}
 {"normalized_text": "tony chachere s creole seasoning", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["Tony Chachere's creole seasonings"], "control": false}
 {"normalized_text": "spiral noodle", "occurrence_count": 1, "frequency_stratum": "tail", "split": "holdout", "example_lines": ["1 lb. box spiral noodles (colored)"], "control": true}
-{"normalized_text": "louisiana hot sauce to", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["Louisiana hot sauce to taste"], "control": false}
-{"normalized_text": "flour to make soft dough", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["flour to make soft dough"], "control": false}
+{"normalized_text": "louisiana hot sauce", "occurrence_count": 1, "frequency_stratum": "mid", "split": "tune", "example_lines": ["Louisiana hot sauce to taste"], "control": false}
+{"normalized_text": "flour make soft dough", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["flour to make soft dough"], "control": false}
 {"normalized_text": "mango pepper", "occurrence_count": 1, "frequency_stratum": "tail", "split": "holdout", "example_lines": ["1/2 c. mango peppers, diced"], "control": false}
 {"normalized_text": "thyme sprig", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["4 thyme sprigs"], "control": false}
 {"normalized_text": "venison stew meat", "occurrence_count": 2, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1 lb. venison stew meat", "2 lb. venison stew meat"], "control": false}
@@ -256,7 +256,7 @@
 {"normalized_text": "prego meat spaghetti sauce", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["Prego meat spaghetti sauce"], "control": false}
 {"normalized_text": "lamb chop", "occurrence_count": 1, "frequency_stratum": "tail", "split": "holdout", "example_lines": ["4 to 6 lamb chops, 3/4-inch thick"], "control": false}
 {"normalized_text": "sweet dough", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1/3 sweet dough"], "control": false}
-{"normalized_text": "-inch piece ginger root", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["2-inch piece fresh ginger root, peeled and thinly sliced or ground ginger"], "control": false}
+{"normalized_text": "inch piece ginger root", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["2-inch piece fresh ginger root, peeled and thinly sliced or ground ginger"], "control": false}
 {"normalized_text": "additional cilantro for garnish", "occurrence_count": 1, "frequency_stratum": "tail", "split": "holdout", "example_lines": ["additional chopped cilantro for garnish"], "control": false}
 {"normalized_text": "black tea", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["2 1/2 Tbsp. black tea"], "control": false}
 {"normalized_text": "lemonade mix with equal", "occurrence_count": 1, "frequency_stratum": "tail", "split": "tune", "example_lines": ["1 (.49 oz.) pkg. lemonade mix with Equal"], "control": false}

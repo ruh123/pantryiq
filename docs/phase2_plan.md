@@ -1,5 +1,18 @@
 # Phase 2 — Silver + Entity Resolution (plan)
 
+> **This is the original plan, kept as written. Phase 2 is complete; where it and reality differ,
+> `er_metrics.md` is authoritative.** Four deviations worth naming:
+> - **2.3 says "~500 labels" and "human judgments = ground truth".** The set was cut to **300**,
+>   and **282 of the 300 were produced by an LLM annotator, not a human** — the single most
+>   important caveat in the project. See §1 and the README warning.
+> - **2.6 (Claude adjudication) was investigated and deliberately NOT built.** Its accuracy is
+>   structurally unmeasurable against an LLM-labeled gold set (§10).
+> - **2.5's "precision target ≥95%" was unreachable** for data reasons (the ambiguity ceiling), so
+>   the reporting unit changed to kcal error. **%-no-LLM is never reported** as a number — with
+>   2.6 unbuilt it is trivially 100%.
+> - **The open `foodCategory` question is answered:** the abridged payload does not carry it;
+>   `silver/usda_foods.py` derives a proxy from the leading comma facet.
+
 The headline differentiator. Runs on the 15K subset; entity resolution operates on
 **distinct normalized ingredient strings** (dedup + cache) so it stays cheap/fast.
 Ordered increments, each with a definition of done. The earlier design-review P0s are

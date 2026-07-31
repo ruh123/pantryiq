@@ -277,16 +277,18 @@ def main(db_path: Path | str = DEFAULT_DB, gold_dir: Path | str = DEFAULT_OUT) -
                     if record["fdc_id"] != NO_MATCH and text in flag_of]
     if null_strings and real_strings:
         print("\n" + "=" * 78)
-        print("LIMITATION — the resolver cannot say no-match")
+        print("THE CONFIDENCE FLAG AS A NULL DETECTOR — superseded by §12's threshold")
         print("=" * 78)
-        print("  It always returns its best candidate, so a string with no real USDA entity still")
-        print("  gets one. The confidence flag is the only proxy available:")
+        print("  The flag separates the null class even though it was never fitted to:")
         print(f"    gold no-match  ({len(null_strings):3} strings): "
               f"{100 * sum(flag_of[t] for t in null_strings) / len(null_strings):5.1f}% flagged")
         print(f"    gold resolvable({len(real_strings):3} strings): "
               f"{100 * sum(flag_of[t] for t in real_strings) / len(real_strings):5.1f}% flagged")
-        print(f"  A flag threshold of {LOW_CONFIDENCE} was fitted for nutrition error, not for "
-              "null detection.")
+        print(f"  But a flag threshold of {LOW_CONFIDENCE} was fitted for nutrition error, and §12"
+              " showed raw")
+        print("  cosine is the better null signal, so abstention uses that instead. The two are")
+        print("  separate answers: `flagged` = this pick may have the wrong facet; `abstained` =")
+        print("  this string probably has no USDA entity at all.")
 
 
 if __name__ == "__main__":

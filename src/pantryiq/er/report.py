@@ -69,8 +69,6 @@ def main(db_path: Path | str = DEFAULT_DB, gold_dir: Path | str = DEFAULT_OUT) -
     gold = {text: record["fdc_id"] for text, record in labels.items()}
     stratum_of = dict(zip(table.column("normalized_text").to_pylist(),
                           table.column("stratum").to_pylist()))
-    control_of = dict(zip(table.column("normalized_text").to_pylist(),
-                          table.column("control").to_pylist()))
 
     # --- fit on tune ONLY -------------------------------------------------------------
     tune_x, tune_y, tune_groups, _ = matrix(table, "tune")
@@ -195,14 +193,13 @@ def main(db_path: Path | str = DEFAULT_DB, gold_dir: Path | str = DEFAULT_OUT) -
     print("  Step 4 measured no usefully large high-accuracy band on tune; this is the")
     print("  out-of-sample check of that claim.")
 
-    print("\nANCHORING DIAGNOSTIC — control rows were labeled without a ranked suggestion")
-    for flag, name in ((True, "control (unranked)"), (False, "ranked")):
-        subset = [equivalence[row[0]] for row in resolvable
-                  if control_of.get(row[0], False) == flag and equivalence[row[0]] is not None]
-        if subset:
-            print(f"  {name:20} n={len(subset):3}  kcal-equivalent "
-                  f"{sum(subset) / len(subset):5.1%}")
-    print("  A large gap would mean the gold labels partly encode the ranking they were shown.")
+    print("\nANCHORING — NOT MEASURED, and the earlier 'clean null' here was vacuous.")
+    print("  The scrambled-candidate control exists only in the interactive labeling CLI, but")
+    print("  282 of 300 labels came from an LLM annotator that never used it: 40 of the 42")
+    print("  control-designated rows were annotator-produced, so exactly ONE string in the gold")
+    print("  set was ever actually presented unranked. The old control-vs-ranked comparison was")
+    print("  two random subsets of identically produced labels — a null by construction, not")
+    print("  evidence. The real anchoring control is §9's shuffled-candidate ensemble.")
 
 
 if __name__ == "__main__":

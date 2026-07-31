@@ -1,8 +1,16 @@
 """The stratified estimator behind the 2.7 headline. The gold set is 100/100/100 over strata of
 545/1,578/7,201 strings, so an unweighted average answers the wrong question entirely."""
+from pathlib import Path
+
 import pytest
 
-from pantryiq.er.entity_map import stratified_ci, stratified_rate
+from pantryiq.er.entity_map import (
+    STRATA,
+    corpus_totals,
+    scored_sample,
+    stratified_ci,
+    stratified_rate,
+)
 
 # head is small but occurrence-heavy; tail is the opposite — the corpus's actual shape.
 TOTALS = {"head": (100, 1000), "tail": (900, 100)}
@@ -79,3 +87,34 @@ def test_the_interval_is_reproducible():
 
     assert (stratified_ci(by_stratum, TOTALS, weighted=True, iterations=200)
             == stratified_ci(by_stratum, TOTALS, weighted=True, iterations=200))
+
+
+# The published figures, regenerated 2026-07-31 after the tie-break and parser fixes.
+HEADLINE = {"equivalent": (0.692, 0.774), "entity": (0.475, 0.581)}
+
+
+@pytest.mark.parametrize("key,expected", sorted(HEADLINE.items()))
+def test_the_committed_gold_set_still_produces_the_published_headline(key, expected):
+    """Nothing else pins the numbers the README leads with. The whole suite passes with `data/`
+    deleted — right for CI, but it means a refactor could move the headline by 50pp in silence.
+    Mutations that scored declined strings, or replaced each string's occurrence count with 1.0
+    (collapsing the per-occurrence column onto the per-string one), both moved it several points
+    and no test noticed.
+
+    Skips without the corpus so a bare checkout stays green. When a measured change lands, this
+    constant is edited deliberately — that edit is the point: it makes moving the headline by
+    accident impossible."""
+    if not Path("data/pantryiq.duckdb").exists():
+        pytest.skip("corpus not present — the headline pin runs where the data lives")
+
+    sample = scored_sample()
+    totals = corpus_totals()
+    by_stratum = {stratum: [(row["weight"], bool(row[key])) for row in sample
+                            if row["stratum"] == stratum and row[key] is not None]
+                  for stratum in STRATA}
+
+    per_string = stratified_ci(by_stratum, totals, weighted=False)[0]
+    per_occurrence = stratified_ci(by_stratum, totals, weighted=True)[0]
+
+    assert per_string == pytest.approx(expected[0], abs=0.001)
+    assert per_occurrence == pytest.approx(expected[1], abs=0.001)

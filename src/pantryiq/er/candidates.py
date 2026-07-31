@@ -139,7 +139,12 @@ def build_candidates(db_path: Path | str = DEFAULT_DB, k: int = TOP_K,
         by_token = set(head_index.get(head_noun, []))
 
         union = by_search | by_desc | by_token
-        rows = sorted(union, key=lambda row: -float(query_vectors[query_row] @ search_vectors[row]))
+        # Tie-break on fdc_id, matching `resolve.top_picks`'s ORDER BY. Without it the order of
+        # equal cosines falls out of `set` iteration — a hash-layout detail, not an ordering —
+        # and 5.2% of strings tie at the top, so `rank = 0` (the §7 baseline arm) was decided
+        # by hash order.
+        rows = sorted(union, key=lambda row: (
+            -float(query_vectors[query_row] @ search_vectors[row]), fdc_ids[row]))
         for rank, candidate_row in enumerate(rows):
             out["normalized_text"].append(string)
             out["fdc_id"].append(fdc_ids[candidate_row])

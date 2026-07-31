@@ -1,5 +1,19 @@
 # Code-review backlog (2026-07-24)
 
+> **Status update 2026-07-31.** All three P0s and four P1s below are **FIXED** — verified in a
+> later review, not assumed: the empty-overwrite guard (`recipes.py:91`, `usda.py:143`), `_get_page`
+> retry coverage (5 new tests), idempotency tests that re-run with *different* input, the
+> `isinstance(body, list)` check, the `Retry-After` 60s cap, and the `iceberg_scan(?)` bound
+> parameter. README Status and regen commands are updated too.
+>
+> **Still genuinely open:** no `fdc_id` sort in `usda.py`; no ragged-row guard in
+> `recipes.build_bronze_table`; no `requests.Session`; `scan_with_duckdb` still untested against a
+> genuinely multi-parquet table; stale `pyproject.toml` comment; no `ruff format --check` in CI;
+> the in-memory materialization that needs a streaming rewrite at the scale gate.
+>
+> The Phase-2 ER-plan review this file asked for **has since been run** — four reviews, recorded
+> in `er_metrics.md` §13.
+
 From a 3-subagent review of the Phase-1 Bronze implementation. **Two of three reviewers
 finished** (code-correctness, test-quality); the **Phase-2 ER-plan reviewer failed on a
 session limit — re-run it next session.** Design-level P0s (unit→gram conversion, servings,

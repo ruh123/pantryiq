@@ -77,7 +77,7 @@ def paired_rows(gold_dir: Path | str = DEFAULT_OUT, db_path: Path | str = DEFAUL
     labels = load_labels(Path(gold_dir) / "labels.jsonl")
     judgments = load_judgments(Path(gold_dir) / JUDGMENTS)
     resolved = {text: (fdc_id, confidence)
-                for text, fdc_id, _, confidence, _ in resolve(db_path, strings=tune_strings())}
+                for text, fdc_id, _, confidence, _, _ in resolve(db_path, strings=tune_strings())}
 
     rows = []
     for text in tune_strings(gold_dir):

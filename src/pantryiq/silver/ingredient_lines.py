@@ -84,6 +84,10 @@ FILLER = SIZE_WORDS | {
     "optional", "well", "very", "about", "approximately", "plus", "more", "needed",
     "taste", "room", "temperature", "such", "as", "each", "any", "your", "favorite",
     "or",  # only survives the " or " cut on the fallback paths ("crushed or chunk pineapple")
+    # "taste" alone left "salt and pepper to" stranded — 210 strings / 1,009 occurrences, the
+    # corpus's largest parser artifact, and head-stratum. Ranges ("1 to 2") never reach here:
+    # _LEAD_QTY consumes them in parse_line.
+    "to",
 }
 
 # "pound cake" is a food, not a measure; every other unit word leading a normalized string
@@ -97,6 +101,9 @@ _SINGULAR_EXCEPTIONS = {
 # -ves plurals need the f back ("celery leaves" -> "celery leaf", not "leave"), but the
 # generic rule would break "olives"/"chives", so the irregulars are listed explicitly.
 _IRREGULAR_PLURALS = {"leaves": "leaf", "halves": "half", "loaves": "loaf", "knives": "knife"}
+# The -ies rule assumes "berries" -> "berry"; these singularize to -ie instead, and the generic
+# rule turned them into foods that no USDA description contains ("cooky", "browny").
+_IE_PLURALS = {"cookies", "brownies", "veggies", "smoothies", "pies", "ties"}
 
 _FRAC_CHARS = "".join(_FRACTIONS)
 _NUM = rf"\d+\s+\d+/\d+|\d+/\d+|\d+\.\d+|\.\d+|\d+\s*[{_FRAC_CHARS}]|[{_FRAC_CHARS}]|\d+"
@@ -192,6 +199,8 @@ def singularize(word: str) -> str:
     """Crude, dependency-free singularization of the final noun."""
     if word in _IRREGULAR_PLURALS:
         return _IRREGULAR_PLURALS[word]
+    if word in _IE_PLURALS:
+        return word[:-1]
     if word in _SINGULAR_EXCEPTIONS or len(word) <= 3:
         return word
     if word.endswith("ies"):
@@ -208,15 +217,27 @@ def _reduce(text: str) -> str:
     # Drop stray counts ("juice of 1 lemon" -> "juice of lemon") but keep fat content ("2% milk").
     text = re.sub(r"\b\d+(\.\d+)?\b(?!\s*%)", " ", text)
 
-    words = [w for w in text.split() if w and w not in FILLER]
-    while words and words[0] == "of":
-        words.pop(0)  # "dash of pepper" -> "pepper"
-    # A chained second unit survives parse_line ("6 oz. can lemon juice" -> "can lemon juice").
-    # Left in, it splits the ER working set: "tsp salt" and "salt" become separate entities.
-    while len(words) > 1 and words[0] in _STRIPPABLE_UNITS:
+    # Strip orphaned hyphens. parse_line takes the 9 of "9-inch pie shell" as the quantity and
+    # leaves "-inch", which is a different entity from the same food written "9 inch". Internal
+    # hyphens are untouched, so "low-fat" survives.
+    words = [word.strip("-") for word in text.split()]
+    words = [w for w in words if w and w not in FILLER]
+    # "of" and a chained second unit have to be stripped in ONE loop, not two. A chained unit
+    # survives parse_line ("6 oz. can lemon juice" -> "can lemon juice"); popping it can expose
+    # an "of" that a preceding of-only loop has already passed ("package of chocolate chips").
+    # Left in, either splits the ER working set: "tsp salt" and "salt" become separate entities.
+    while words and (words[0] == "of"
+                     or (len(words) > 1 and words[0] in _STRIPPABLE_UNITS)):
         words.pop(0)
-    if words:
-        words[-1] = singularize(words[-1])
+    # Singularizing can expose a filler word the plural form hid ("broccoli cuts" -> "cut"), so
+    # drop it and singularize the new tail. Looping is what makes normalize() idempotent.
+    while words:
+        singular = singularize(words[-1])
+        if singular in FILLER:
+            words.pop()
+            continue
+        words[-1] = singular
+        break
     return " ".join(words).strip()
 
 

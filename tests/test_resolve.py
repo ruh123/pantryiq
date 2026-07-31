@@ -91,12 +91,39 @@ def test_abstention_is_a_separate_signal_from_the_confidence_flag(db, curve):
     assert rows["flour"] == (True, True)
 
 
+def test_abstention_reads_raw_cosine_not_the_calibrated_confidence(db, curve):
+    """The two cuts above agree on both fixture rows, so that test passes whether abstention
+    reads `cosine` or the calibrated `score` — the mutation swapping them survived it.
+
+    This threshold splits them. flour's top cosine is 0.42, which the curve maps to ~0.14, so a
+    cut at 0.30 sits BETWEEN the two signals: reading cosine keeps flour (0.42 >= 0.30), reading
+    confidence would decline it (0.14 < 0.30). §12's whole finding is that these are different
+    signals fitted for different targets, so the resolver must not quietly reuse the curve."""
+    rows = {text: (flagged, abstained)
+            for text, _, _, _, flagged, abstained in resolve(db, curve, abstain_threshold=0.30)}
+
+    flagged, abstained = rows["flour"]
+    assert abstained is False        # would be True if abstention read the confidence curve
+    assert flagged is True           # and the flag still fires — the signals genuinely disagree
+
+
 def test_a_zero_threshold_never_abstains(db, curve):
     """The stored threshold is absent until abstain.py has been run; the resolver must then
     behave exactly as it did before rather than declining on everything."""
     rows = resolve(db, curve, abstain_threshold=0.0)
 
     assert not any(abstained for *_, abstained in rows)
+
+
+def test_resolve_returns_six_fields_that_callers_unpack_positionally(db, curve):
+    """Found by review: §12 appended `abstained` as a 6th field, but adjudicator_value.py kept
+    unpacking 5 — so it raised ValueError on every real run while the suite stayed green,
+    because its own test stubbed `resolve` with a 5-tuple and pinned the obsolete contract.
+    Callers unpack positionally, so the width is part of the interface; pin it at the producer
+    where a change is visible, not in each consumer's stub."""
+    rows = resolve(db, curve)
+
+    assert all(len(row) == 6 for row in rows)
 
 
 def test_the_curve_round_trips_through_disk(tmp_path):

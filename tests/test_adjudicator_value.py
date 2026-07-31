@@ -71,10 +71,13 @@ def test_paired_rows_skips_no_match_and_unjudged_strings(tmp_path, monkeypatch):
         {"normalized_text": "bisquick", "annotator": ADJUDICATOR, "fdc_id": "2"},
         {"normalized_text": "held", "annotator": ADJUDICATOR, "fdc_id": "2"},
     ]) + "\n")
+    # Six fields, matching resolve()'s real contract — see
+    # test_resolve_returns_six_fields_that_callers_unpack_positionally for why the width is
+    # pinned there rather than trusted here.
     monkeypatch.setattr("pantryiq.er.adjudicator_value.resolve",
-                        lambda *a, **k: [("egg", "1", 0.9, 0.8, False),
-                                         ("bisquick", "1", 0.9, 0.8, False),
-                                         ("unjudged", "1", 0.9, 0.8, False)])
+                        lambda *a, **k: [("egg", "1", 0.9, 0.8, False, False),
+                                         ("bisquick", "1", 0.9, 0.8, False, False),
+                                         ("unjudged", "1", 0.9, 0.8, False, False)])
 
     rows = paired_rows(tmp_path, tmp_path / "unused.duckdb")
 

@@ -3,6 +3,7 @@ silently produces wrong nutrition — so the objective is deliberately not F1.""
 import numpy as np
 import pytest
 
+from pantryiq.er import abstain
 from pantryiq.er.abstain import (
     cross_validated,
     f_beta,
@@ -66,15 +67,29 @@ def test_abstaining_on_nothing_is_not_reported_as_an_option():
     assert all(row[1] > 0 for row in sweep(scores, is_null))
 
 
-def test_cross_validation_refits_inside_each_fold():
+def test_cross_validation_refits_inside_each_fold(monkeypatch):
     """A threshold picked on all 201 strings and scored on those same strings reports its own
-    best case. These numbers must be achievable on unseen strings."""
+    best case. These numbers must be achievable on unseen strings.
+
+    Asserted STRUCTURALLY, on the training sets themselves. The previous version asserted
+    `recall > 0.8 and precision > 0.8` on a cleanly separable signal, which fitting on all the
+    data also satisfies — it scores BETTER (precision 1.0 against the honest 0.952), so the
+    mutation that removed per-fold refitting passed the test named for catching it. Folds here
+    are a seeded permutation, so any statistical proxy is fragile; what actually defines honest
+    cross-validation is that no point is ever in its own training set."""
     rng = np.random.default_rng(0)
     scores = np.concatenate([rng.uniform(0.0, 0.5, 40), rng.uniform(0.5, 1.0, 160)])
     is_null = np.array([True] * 40 + [False] * 160)
 
+    seen = []
+    real = abstain.fit_threshold
+    monkeypatch.setattr(abstain, "fit_threshold",
+                        lambda s, n, b: (seen.append(len(s)), real(s, n, b))[1])
     recall, precision, abstain_rate = cross_validated(scores, is_null, folds=4)
 
+    assert len(seen) == 4
+    # 4 folds over 200 points: each fit sees the other three folds, never all 200.
+    assert all(size == 150 for size in seen), f"a fold trained on {max(seen)} of 200 points"
     assert recall > 0.8 and precision > 0.8       # a clean signal survives cross-validation
     assert 0.0 < abstain_rate < 1.0
 

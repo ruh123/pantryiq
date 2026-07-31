@@ -186,6 +186,31 @@ def majority(votes: list[str]) -> tuple[str | None, int]:
     return (leaders[0], best) if len(leaders) == 1 else (None, best)
 
 
+def canonical(votes: list[str], description: dict[str, str]) -> list[str]:
+    """Votes as comparable labels: twins sharing a USDA description collapse to one (guide rule 6).
+
+    Without this, `majority`, `krippendorff_alpha` and the unanimity count compare raw fdc_ids,
+    so two annotators picking the Foundation and SR Legacy rows of an *identical* description
+    scored as a disagreement — while `same_entity`, used a few lines below for per-annotator
+    agreement, scored the same pair as a match. The module applied rule 6 to one half of its own
+    reporting and not the other.
+    """
+    return [description.get(fdc_id) or fdc_id for fdc_id in votes]
+
+
+def alpha_ci(items: list[list[str]], iterations: int = 5000,
+             seed: int = SEED) -> tuple[float, float]:
+    """Percentile bootstrap CI for alpha, resampling items.
+
+    A point estimate on ~120 items hides a wide interval, and the number is quoted against a
+    0.67 'usable' floor — so whether it clears that floor is exactly what needs an interval.
+    """
+    rng = random.Random(seed)
+    draws = sorted(krippendorff_alpha([items[rng.randrange(len(items))] for _ in items])
+                   for _ in range(iterations))
+    return (draws[int(0.025 * iterations)], draws[int(0.975 * iterations)])
+
+
 def krippendorff_alpha(items: list[list[str]]) -> float:
     """Krippendorff's α for nominal data. 1.0 = perfect agreement, 0 = chance, <0 = worse.
 
@@ -337,13 +362,22 @@ def report(gold_dir: Path | str = DEFAULT_OUT, db_path: Path | str = DEFAULT_DB)
           f"({len(ANNOTATORS)} annotators)   failures: {len(errors)}")
 
     complete = {text: vote for text, vote in votes.items() if len(vote) == len(ANNOTATORS)}
-    alpha = krippendorff_alpha([list(vote.values()) for vote in complete.values()])
-    print(f"\nKrippendorff's alpha (nominal, n={len(complete)}): {alpha:.3f}")
+    # Rule-6 twins collapse before every consensus statistic, matching `same_entity` below.
+    items = [canonical(list(vote.values()), description) for vote in complete.values()]
+    alpha = krippendorff_alpha(items)
+    low, high = alpha_ci(items)
+    print(f"\nKrippendorff's alpha (nominal, n={len(complete)}): {alpha:.3f} "
+          f"[{low:.3f}, {high:.3f}]")
     print("  1.0 = perfect agreement, 0 = chance. Below ~0.67 is normally considered too low")
     print("  to draw conclusions from the labels; 0.8+ is the usual publication bar.")
+    if low < 0.67:
+        print("  NOTE: the interval straddles the 0.67 floor — the labels are consistent with")
+        print(f"  being usable, but do not clearly clear that bar. Quote the interval, not "
+              f"{alpha:.3f} alone.")
 
-    unanimous = sum(1 for vote in complete.values() if len(set(vote.values())) == 1)
-    decided = {text: majority(list(vote.values())) for text, vote in complete.items()}
+    unanimous = sum(1 for item in items if len(set(item)) == 1)
+    decided = {text: majority(canonical(list(vote.values()), description))
+               for text, vote in complete.items()}
     ties = [text for text, (winner, _) in decided.items() if winner is None]
     print(f"\nunanimous: {unanimous}/{len(complete)} ({100 * unanimous / len(complete):.1f}%)   "
           f"3-way ties (no majority): {len(ties)}")
@@ -353,7 +387,10 @@ def report(gold_dir: Path | str = DEFAULT_OUT, db_path: Path | str = DEFAULT_DB)
         pairs = [(vote[model], winner) for text, vote in complete.items()
                  if (winner := decided[text][0]) is not None]
         if pairs:
-            hits = sum(1 for mine, winner in pairs if same_entity(mine, winner, description))
+            # `winner` is already canonical, so canonicalize this side too rather than calling
+            # same_entity, which expects two raw fdc_ids.
+            hits = sum(1 for mine, winner in pairs
+                       if (description.get(mine) or mine) == winner)
             print(f"  {model:22} {hits}/{len(pairs)} = {100 * hits / len(pairs):5.1f}%")
 
     # --- validation against human judgment -------------------------------------------

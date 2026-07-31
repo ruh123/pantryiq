@@ -155,3 +155,39 @@ def test_build_and_write_silver(tmp_path):
     ).fetchall()
     con.close()
     assert distinct == [("sugar", 2), ("egg", 1)]
+
+
+# Real shapes that were reduced wrongly until 2026-07-31, with what each one cost.
+ARTIFACT_CASES = [
+    ("salt and pepper to taste", "salt and pepper"),   # "salt and pepper to": 479 occurrences
+    ("salt to taste", "salt"),                          # merged into "salt" (4,913)
+    ("1 lb. box of powdered sugar", "powdered sugar"),  # leading "of" survived the unit strip
+    ("1 (10 oz.) pkg. frozen broccoli cuts", "frozen broccoli"),  # "cut" is FILLER once singular
+    ("9-inch pie shell", "inch pie shell"),             # parse_line took the 9, orphaning "-"
+    ("1 pkg. Oreo cookies, crushed", "oreo cookie"),    # the -ies rule gave "cooky"
+    ("2 c. frozen mixed veggies", "frozen mixed veggie"),
+    ("2 cups blueberries", "blueberry"),                # the -ies rule is still right here
+    ("1 c. low-fat milk", "low-fat milk"),              # internal hyphens must survive
+    ("1 to 2 lb. ground beef", "ground beef"),          # "to" as a range, consumed by _LEAD_QTY
+    ("2% milk", "2% milk"),                             # fat content, not a quantity
+]
+
+
+@pytest.mark.parametrize("line,expected", ARTIFACT_CASES)
+def test_known_parser_artifacts_stay_fixed(line, expected):
+    """Each of these fragmented the ER working set into a string no USDA description contains.
+    The worst, "salt and pepper to", reached 479 occurrences in the head stratum and resolved
+    confidently to tomato chili sauce at 92 kcal/100g."""
+    assert normalize(parse_line(line).ingredient_text) == expected
+
+
+@pytest.mark.parametrize("line,_quantity,_unit,normalized", CASES)
+def test_normalizing_an_already_normalized_string_changes_nothing(line, _quantity, _unit,
+                                                                  normalized):
+    """Normalization is a canonicalisation: the ER working set keys on it, the gold labels join
+    on it, and `verify_sample` exists to catch strings orphaned by normalizer drift. It was NOT
+    idempotent for 23 of 9,324 real strings — "package of chocolate chips" reduced to "of
+    chocolate chip", "broccoli cuts" to "frozen broccoli cut" — because the strip passes ran in
+    the wrong order. A non-idempotent normalizer leaves two spellings of one food as two
+    entities, each separately resolved and separately wrong."""
+    assert normalize(normalized) == normalized

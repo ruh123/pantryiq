@@ -160,11 +160,17 @@ The CLI ranks candidates and lets `ENTER` accept the top one. That is a real spe
 real risk: an accept rate cannot be distinguished from genuine agreement if every row is
 presented the same way.
 
-So **~15% of rows (42 of 300) are shown scrambled and unranked**, with no suggestion and no
-`ENTER` shortcut. Comparing how often the labeler's choice matches the model's top pick in
-each mode gives a measured estimate of how much the ranking anchored the judgment. That number
-gets reported alongside precision/recall rather than assumed away. Control assignment is
-deterministic per string, so it is stable across re-runs.
+So 42 of 300 rows (~15%) are **designated** control: shown scrambled and unranked, with no
+suggestion and no `ENTER` shortcut. Control assignment is deterministic per string, so it is
+stable across re-runs.
+
+> ⚠️ **In practice this control was never administered, and the diagnostic built on it has been
+> retracted (`er_metrics.md` §7).** The scrambled presentation exists only in this interactive
+> CLI, but 282 of the 300 labels were produced by an LLM annotator that never ran it — **40 of
+> the 42 control rows were annotator-produced**, leaving exactly one string (`buttermilk`) that
+> was ever actually shown unranked. Any control-vs-ranked comparison over these labels is two
+> random subsets of identically produced rows. The project's working anchoring control is the
+> §9 ensemble, which shuffles candidate order per annotator and records `shown_order`.
 
 ## Labeling honestly
 
