@@ -27,6 +27,8 @@ Run locally:  uv run airflow dags test pantryiq_pipeline
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pendulum
 from airflow.sdk import dag, task
 
@@ -127,13 +129,27 @@ def pantryiq_pipeline():
 
         main()
 
-    @task.bash
+    @task.bash(cwd=str(Path(__file__).resolve().parents[1]))
     def build_gold_gated() -> str:
-        """dbt build: models and tests interleaved, so a failed test blocks promotion.
+        """dbt build into STAGING: models and tests interleaved, so a failed test skips the rest.
 
-        A non-zero exit fails the task and therefore the run, which is the gate.
+        A non-zero exit fails the task, which stops `publish_gold` from running — that is what
+        makes this an admission gate rather than only a propagation one. `cwd` is derived from
+        __file__ rather than $AIRFLOW_HOME, which is unset by default and silently resolves to
+        $HOME (dbt-duckdb then creates an empty warehouse and reports it healthy).
         """
-        return "cd $AIRFLOW_HOME && uv run dbt build --profiles-dir ."
+        return "uv run dbt build --profiles-dir . --target staging"
+
+    @task
+    def publish_gold():
+        """Swap staging into `gold` in one transaction and stamp the vintage.
+
+        Only reached when the gate passed, so Gold moves all-at-once from a fully-tested build.
+        """
+        from pantryiq.gold.publish import export, publish
+
+        publish()
+        export()
 
     # Silver fan-in, then resolution, then Gold. Written as one chain because the DuckDB write
     # lock makes concurrency a failure mode rather than a speed-up.
@@ -149,6 +165,7 @@ def pantryiq_pipeline():
         >> convert_to_grams()
         >> report_gram_accuracy()
         >> build_gold_gated()
+        >> publish_gold()
     )
 
 

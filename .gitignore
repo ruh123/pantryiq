@@ -46,3 +46,4 @@ standalone_admin_password.txt
 simple_auth_manager_passwords.json.generated
 gx/uncommitted/
 great_expectations/uncommitted/
+data/pantryiq_gold.duckdb

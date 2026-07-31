@@ -94,3 +94,27 @@ def test_gold_currently_satisfies_the_bounds_the_gate_enforces():
         con.close()
 
     assert breaches == 0
+
+
+def test_the_gate_builds_to_staging_and_publish_is_a_separate_step():
+    """`dbt build` alone is only a PROPAGATION gate: dbt tests the BUILT table, so the model
+    whose test fails has already been materialized. Running it straight at `gold` meant a probe
+    row genuinely sat in `gold.canonical_ingredients` while its own test failed, and a real
+    failure left Gold at mixed vintage. The build must target staging, and publishing must be a
+    step that only runs when the gate passed."""
+    makefile = Path("Makefile").read_text()
+    dag = Path("dags/pantryiq_pipeline.py").read_text()
+
+    assert "--target staging" in makefile
+    assert "--target staging" in dag
+    assert "publish_gold" in dag
+
+
+def test_publish_swaps_every_gold_table_in_one_transaction():
+    """A table-by-table swap outside a transaction is the mixed-vintage failure in a different
+    coat — it would leave Gold half-new for the duration and permanently if it died midway."""
+    source = Path("src/pantryiq/gold/publish.py").read_text()
+
+    assert "BEGIN TRANSACTION" in source and "ROLLBACK" in source
+    body = source[source.index("BEGIN TRANSACTION"):source.index("COMMIT")]
+    assert "CREATE OR REPLACE TABLE" in body and "pipeline_run" in body

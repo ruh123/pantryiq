@@ -3,18 +3,25 @@
 -- Tags are stated as ABSENCE OF A DISQUALIFIER, and only for recipes whose ingredients are
 -- fully accounted for. A recipe with an unresolved ingredient cannot be called vegan: the thing
 -- we could not identify is exactly the thing that might disqualify it. So `nutrition_coverage`
--- must be 1.0 before any tag is emitted — silence is the safe answer, and a false "vegan" tag
--- is the kind of claim that matters to someone.
+-- must be 1.0 before any tag is emitted — silence is the safe answer.
 --
--- Matching is on the USDA category and description, which is coarse. These are a demo-able
--- convenience, NOT an allergen guarantee, and the README must say so.
+-- **MATCHING IS ON `display_name`, NOT `category`.** An earlier version tested
+-- `category like '%cereal grain%'`, `'%dairy%'`, `'%finfish%'`, `'%shellfish%'` — all four
+-- matched ZERO rows, because `silver.usda_foods.category` is a derived leading-comma facet
+-- ("beef", "bread", "millet flour"), not USDA's food-group vocabulary. The tags therefore rested
+-- on a handful of left-anchored `display_name` patterns and leaked badly: 40 of 429 gluten-free
+-- recipes contained gluten (pie crust, chow mein noodles, cake mix) and 9 of 170 vegan recipes
+-- contained honey, gelatin or shrimp. Patterns below are unanchored and cover the food families
+-- that actually appear.
+--
+-- Still coarse, and still NOT an allergen guarantee: it is substring matching over USDA
+-- descriptions, so a novel product name can slip through. The README says so.
 
 with lines as (
 
     select
         resolved.recipe_id,
-        lower(coalesce(foods.category, ''))     as category,
-        lower(coalesce(foods.display_name, '')) as display_name
+        lower(coalesce(foods.display_name, '')) as name
     from {{ ref('recipe_ingredients_resolved') }} as resolved
     left join {{ ref('canonical_ingredients') }} as foods
         on foods.canonical_id = resolved.canonical_id
@@ -34,27 +41,43 @@ flags as (
     select
         lines.recipe_id,
 
+        -- Flesh of any animal, including the fish and shellfish families the old category
+        -- predicates silently missed entirely.
         bool_or(
-            category like '%beef%' or category like '%pork%' or category like '%poultry%'
-            or category like '%sausage%' or category like '%lamb%' or category like '%finfish%'
-            or category like '%shellfish%'
-            or display_name like 'beef,%' or display_name like 'pork,%'
-            or display_name like 'chicken,%' or display_name like 'turkey,%'
-            or display_name like 'fish,%' or display_name like 'bacon%'
+            name like '%beef%' or name like '%pork%' or name like '%chicken%'
+            or name like '%turkey%' or name like '%lamb%' or name like '%veal%'
+            or name like '%bacon%' or name like '%sausage%' or name like '%ham,%'
+            or name like '%fish%' or name like '%salmon%' or name like '%tuna%'
+            or name like '%shrimp%' or name like '%crustacean%' or name like '%mollusk%'
+            or name like '%crab%' or name like '%lobster%' or name like '%clam%'
+            or name like '%oyster%' or name like '%anchov%' or name like '%bison%'
+            or name like '%venison%' or name like '%duck%' or name like '%goose%'
+            or name like '%liver%' or name like '%bologna%' or name like '%pepperoni%'
+            or name like '%salami%' or name like '%frankfurter%' or name like '%meat%'
+            or name like '%broth%' or name like '%gelatin%' or name like '%lard%'
         ) as has_meat,
 
+        -- Anything from an animal at all. Honey and gelatin are the ones people miss.
         bool_or(
-            category like '%dairy%' or category like '%egg%'
-            or display_name like 'milk,%' or display_name like 'butter,%'
-            or display_name like 'cheese,%' or display_name like 'cream,%'
-            or display_name like 'yogurt,%' or display_name like 'egg,%'
+            name like '%milk%' or name like '%butter,%' or name like '%butter %'
+            or name like '%cheese%' or name like '%cream%' or name like '%yogurt%'
+            or name like '%egg%' or name like '%honey%' or name like '%mayonnaise%'
+            or name like '%custard%' or name like '%whey%' or name like '%casein%'
+            or name like '%ghee%' or name like '%ice cream%'
         ) as has_animal_product,
 
+        -- Wheat, barley, rye, and the prepared foods made from them.
         bool_or(
-            category like '%cereal grain%' or category like '%baked%'
-            or display_name like 'wheat%' or display_name like 'bread,%'
-            or display_name like 'flour%' or display_name like '%barley%'
-            or display_name like '%rye%'
+            name like '%wheat%' or name like '%flour%' or name like '%bread%'
+            or name like '%barley%' or name like '%rye%' or name like '%bulgur%'
+            or name like '%couscous%' or name like '%semolina%' or name like '%farina%'
+            or name like '%macaroni%' or name like '%noodle%' or name like '%spaghetti%'
+            or name like '%pasta%' or name like '%cracker%' or name like '%cookie%'
+            or name like '%cake%' or name like '%pie crust%' or name like '%crust,%'
+            or name like '%crouton%' or name like '%pretzel%' or name like '%graham%'
+            or name like '%biscuit%' or name like '%tortilla, flour%' or name like '%bagel%'
+            or name like '%muffin%' or name like '%doughnut%' or name like '%pastry%'
+            or name like '%stuffing%' or name like '%oats%' or name like '%malt%'
         ) as has_gluten_source
 
     from lines

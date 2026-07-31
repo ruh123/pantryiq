@@ -79,12 +79,17 @@ unmeasurable against an LLM-labeled gold set (§10).
 per-100g nutrition with `nutrition_coverage` and `data_trust_score`. Two findings worth reading
 before quoting anything from Gold ([§14](docs/er_metrics.md)):
 
-- **Gram conversion is 83.2% accurate** against published reference weights — but it was **64.1%**
-  until 13 head-string entity errors were corrected. `sugar` resolved to *powdered* sugar (110 g/cup
-  against 200), `egg` to **Eggnog**, `milk` to **Crackers, milk**. The kcal headline was blind to all
-  of them: powdered and granulated sugar carry near-identical energy. Those corrections are
-  **hand-asserted**, adopted only after a principled re-ranking rule was measured and failed.
-- **Only 2.6% of recipes have complete nutrition.** Per-line coverage is 63.9%, but a recipe needs
+- **Gram conversion is 77.6% accurate** against published reference weights, measured on the
+  reference pairs no hand-correction touched. The headline figure over *all* pairs is 83.2%, but
+  11 of 34 sit on hand-overridden entities, so 77.6% is the number that stands on its own.
+- **13 head-string entity errors were hand-corrected** — `sugar` resolved to *powdered* sugar
+  (110 g/cup against 200), `egg` to **Eggnog** on 4,399 lines, `milk` to **Crackers, milk**. The
+  kcal headline was structurally blind to these: powdered and granulated sugar carry
+  near-identical energy. The corrections are **asserted, not measured** — their independent
+  effect on every metric is +0.0pp, because the only two that the gold set can see were set to
+  exactly their gold label. They were kept because they are wrong on inspection, not because a
+  number improved. See §14.
+- **Only 4.7% of recipes have complete nutrition.** Per-line coverage is 63.9%, but a recipe needs
   every line, so completeness compounds. Nothing quotes a recipe total without its coverage.
 
 **Still to build** — the cost table, the quality gate, and the Airflow DAG.

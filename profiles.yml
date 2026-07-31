@@ -5,9 +5,16 @@ pantryiq:
   outputs:
     dev:
       type: duckdb
-      path: data/pantryiq.duckdb
+      path: "{{ env_var('PANTRYIQ_DB', 'data/pantryiq.duckdb') }}"
       # dbt-duckdb attaches the same file Python writes Silver into, so Gold builds against the
       # live Silver tables with no copy step. Nothing may run dbt and the Python pipeline at the
       # same time — DuckDB takes a single writer lock.
       schema: gold
+      threads: 4
+    # Write-audit-publish: the gate builds HERE, and `pantryiq.gold.publish` swaps into `gold`
+    # only when every test passed. Gold therefore never holds a half-built vintage.
+    staging:
+      type: duckdb
+      path: "{{ env_var('PANTRYIQ_DB', 'data/pantryiq.duckdb') }}"
+      schema: gold_staging
       threads: 4

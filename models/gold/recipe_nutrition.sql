@@ -97,13 +97,20 @@ select
     -- NULL for ~85% of recipes, and deliberately so: RecipeNLG states no servings count and
     -- estimating one would put an invented denominator inside every per-serving number.
     stated_servings.servings,
+    -- GATED ON COMPLETE COVERAGE. total_kcal sums only contributing lines while `servings`
+    -- counts the whole recipe, so on a partial recipe this divides a partial numerator by a
+    -- full denominator and is systematically biased LOW — 94% of these values previously came
+    -- from incomplete recipes, one publishing 3,493 kcal/serving from 1 of 12 ingredients.
+    -- Unlike kcal_per_100g, the two bases do not cancel. Same gate recipe_tags already applies.
     case when stated_servings.servings > 0
+              and counted_ingredients = ingredient_count
          then total_kcal / stated_servings.servings end as kcal_per_serving,
 
     -- Cost is a STAND-IN (see gold.ingredient_costs) and is reported with its own coverage,
     -- which is lower than nutrition's: an ingredient can be weighed but unpriced.
     total_usd                                                as cost_total_usd,
     case when stated_servings.servings > 0
+              and costed_ingredients = ingredient_count
          then total_usd / stated_servings.servings end       as cost_per_serving_usd,
     costed_ingredients::double / nullif(ingredient_count, 0) as cost_coverage,
 

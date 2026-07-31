@@ -35,11 +35,20 @@ _NUMBER_WORDS = {
 }
 _COUNT = r"(\d{1,3}|" + "|".join(_NUMBER_WORDS) + r")"
 
-# "Serves 6", "Makes about 8 servings", "Yield: 4 dozen cookies".
+# "Serves 6", "Makes about 8 servings", "Yield: 4 dozen cookies", "Makes 2 1/2 dozen".
+#
+# The fraction and any parenthetical are consumed BEFORE the dozen/unit groups. Without that,
+# `[a-z]+` landed past the real unit: "Makes about 5 1/3 cups" read as 5 servings because
+# `cups` was never seen, and "Yield: 2 1/2 dozen" read as 2 rather than 30 because the `dozen`
+# group could not match across the fraction — the exact twelvefold error this module claims to
+# prevent. 158 extractions were wrong this way.
 _YIELD = re.compile(
     rf"\b(?:serves?|serving[s]?\s*:|makes|yield[s]?)\s*:?\s*"
-    rf"(?:about|approximately|around)?\s*{_COUNT}\s*(?:to|-|–)?\s*(?:\d{{1,3}})?\s*"
-    rf"(dozen)?\s*([a-z]+)?",
+    rf"(?:about|approximately|around)?\s*{_COUNT}"
+    rf"(?:\s+(\d{{1,3}})/(\d{{1,3}}))?"                # "2 1/2" — CAPTURED, see below
+    rf"\s*(?:to|-|–)?\s*(?:\d{{1,3}}(?:\s+\d{{1,3}}/\d{{1,3}})?)?\s*"   # "5 to 6"
+    rf"(?:\([^)]*\))?\s*"                              # "2 (9-inch) layers"
+    rf"(dozen)?\s*([a-z]+)?(?:\s+([a-z]+))?",           # two words, not one
     re.I)
 
 # A yield counted in these is not a serving count — "makes 2 loaves" says nothing about how many
@@ -48,6 +57,7 @@ NON_PORTION_UNITS = {
     "loaf", "loaves", "pan", "pans", "cake", "cakes", "pie", "pies", "crust", "crusts",
     "quart", "quarts", "pint", "pints", "gallon", "gallons", "cup", "cups", "jar", "jars",
     "pound", "pounds", "lb", "lbs", "batch", "batches", "recipe", "recipes",
+    "layer", "layers", "sheet", "sheets", "roll", "rolls", "ball", "balls", "log", "logs",
 }
 # An implausible count is more likely a misparse than a real yield.
 MAX_SERVINGS = 200
@@ -58,14 +68,22 @@ def parse_servings(text: str) -> int | None:
     match = _YIELD.search(text or "")
     if not match:
         return None
-    raw, dozen, unit = match.group(1), match.group(2), (match.group(3) or "").lower()
+    raw, numerator, denominator, dozen = match.group(1), match.group(2), match.group(3), \
+        match.group(4)
+    # Scan the next TWO words: "5 1/3 cups sifted" and "2 large loaves" both hide the real unit
+    # behind another word.
+    words = [(match.group(5) or "").lower(), (match.group(6) or "").lower()]
     count = _NUMBER_WORDS.get(raw.lower()) if not raw.isdigit() else int(raw)
     if not count:
         return None
     if dozen:
-        count *= 12
-        unit = ""  # "4 dozen cookies" — the cookies are the portions
-    if unit in NON_PORTION_UNITS:
+        # The fraction is part of the multiplicand: "2 1/2 dozen" is 30, not 24. Only dozens are
+        # fractional in practice — "2 1/2 servings" is not a thing — so elsewhere it is dropped.
+        if numerator and denominator and int(denominator):
+            count += int(numerator) / int(denominator)
+        count = int(round(count * 12))
+        words = []  # "4 dozen cookies" — the cookies are the portions
+    if any(word in NON_PORTION_UNITS for word in words):
         return None
     return count if 0 < count <= MAX_SERVINGS else None
 

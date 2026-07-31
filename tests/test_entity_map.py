@@ -91,7 +91,7 @@ def test_the_interval_is_reproducible():
 
 # The published figures, regenerated 2026-07-31 after the head-string entity overrides
 # (er_metrics.md §14). The previous values were (0.692, 0.774) / (0.475, 0.581).
-HEADLINE = {"equivalent": (0.693, 0.810), "entity": (0.477, 0.673)}
+HEADLINE = {"equivalent": (0.693, 0.810), "entity": (0.477, 0.673)}  # unchanged by the 3.x fixes
 
 
 @pytest.mark.parametrize("key,expected", sorted(HEADLINE.items()))

@@ -945,18 +945,48 @@ abstention.
 Coverage rose because correct entities carry better portion data: `Egg, whole, raw` has a
 per-egg weight, `Eggnog` has a cup weight that never applies to "2 eggs".
 
-### How much of that gain to believe
+### How much of that gain to believe — CORRECTED 2026-07-31
 
-- **The gram figure is partly circular.** `gram_reference.csv` asserts "sugar = 200 g/cup
-  (granulated)" and the override sends `sugar` to granulated — both encode one belief, so the
-  +19.1pp overstates the independent gain. The underlying weights are USDA's published values,
-  so it is not *fully* circular, but it is not a clean read either.
-- **The kcal and entity gains are not circular.** They are measured against gold labels produced
-  by a separate annotator before overrides existed: **+3.6pp kcal, +9.2pp entity**. Those are
-  the defensible numbers.
-- **Two overridden strings (`cinnamon`, `soda`) are in the gold set.** Both are in *tune*,
-  neither in the holdout, and both **agree** with their independently-produced labels — so the
-  frozen estimate is uncontaminated and no ground truth was overridden.
+**An earlier revision of this section claimed the kcal and entity gains were "not circular" and
+called them "the defensible numbers". That was wrong, and it was the most consequential error in
+this document.** A review reconstructed the pre-override resolver and recomputed:
+
+| gold set used | kcal per-occ | entity per-occ |
+|---|---|---|
+| all 203 scorable strings (as published) | 77.4% → 81.0% (+3.6pp) | 58.1% → 67.3% (+9.2pp) |
+| **excluding the 13 overridden strings** | 79.5% → 79.5% (**+0.0pp**) | 64.5% → 64.5% (**+0.0pp**) |
+
+**100% of both gains comes from `cinnamon` and `soda`** — the only two overridden strings in the
+gold set — and `entity_overrides.csv` sets each to *exactly* its gold `fdc_id`. Measuring
+agreement with a label after setting the prediction equal to that label is circular by
+construction. The old defence was about label *provenance* ("a separate annotator, before the
+overrides existed"); what makes it circular is that the intervention targeted the labelled item.
+The bullet that followed it — "both **agree** with their independently-produced labels" — states
+the mechanism and presented it as evidence against itself.
+
+The head weighting makes it sharper: `cinnamon` and `soda` carry 1,748 of the head stratum's
+15,983 sample weight, so two strings move a corpus-level metric by 9.2pp. The other 11 overrides
+are **unmeasurable** against the gold set, so the measured effect is drawn entirely from the
+subset guaranteed to be non-negative. There is no downside risk in that estimator.
+
+Grams are the same shape. 11 of the 34 reference pairs are on overridden strings:
+
+| subset | per pair | per occurrence |
+|---|---|---|
+| all 34 pairs (as published) | 76.5% | **83.2%** |
+| 11 overridden pairs | 90.9% | 92.0% |
+| **23 non-overridden pairs** | **69.6%** | **77.6%** |
+
+The non-overridden subset is byte-identical before and after — overrides cannot touch it. So the
+independent gram-accuracy gain is **0.0pp**, not "+19.1pp overstates it", and `gram_reference.csv`
+and `entity_overrides.csv` encode the same belief for those 11 pairs.
+
+**The overrides were kept anyway, and that is a judgement, not a measurement.** `egg` resolving
+to *Eggnog* on 4,399 occurrences and `milk` to *Crackers, milk* on 2,336 are wrong on inspection,
+by anyone who reads them, whether or not a metric can see it. What cannot be claimed is that a
+measurement demonstrated the improvement. **Quote 77.6% / 69.6% as the independent gram accuracy**;
+the 83.2% headline includes hand-corrected pairs and the published 81.0% / 67.3% includes two
+contaminated tune strings.
 
 ### Still wrong after the overrides
 
@@ -968,8 +998,10 @@ resolver still picks coconut oil) and a cluster of chopped-vegetable cup weights
 ### Coverage is the real Phase-3 limitation
 
 63.9% of lines convert, but a recipe needs **every** line to be complete — so completeness
-compounds: **only 2.6% of recipes have full nutrition**, and only 73 of 15,000 have full
-nutrition *and* a stated servings count. Per-line coverage looks healthy; per-recipe coverage is
+compounds: **only 4.74% of recipes (711) have full nutrition**, 0.74% (111) have full cost, and
+after gating per-serving figures on complete coverage only **118 publish a `kcal_per_serving`
+and 14 a `cost_per_serving`**. (An earlier revision quoted 2.6% and "73 of 15,000" — those were
+pre-override figures printed next to post-override coverage.) Per-line coverage looks healthy; per-recipe coverage is
 brutal. `nutrition_coverage` and `data_trust_score` exist so no total is ever quoted without it.
 
 ### The quality gate (3.6), and what "blocks" means

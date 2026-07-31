@@ -66,6 +66,9 @@ COUNT_MEASURES = ("each", "piece", "large", "medium", "racc", "serving", "small"
 # "1 (10 1/2 oz.) can", "2 (16 oz) pkg" — the pack size the parser discards.
 _PACK_SIZE = re.compile(
     r"\(\s*([\d\s./]+?)\s*(oz|ounce|lb|pound|kg|g|gram|ml|liter|l)s?\.?\s*\)", re.I)
+# "2 (16 oz.) pkg" — the parenthetical follows the leading quantity, so it sizes ONE pack.
+# Anything else ("7 pt. (5 lb.) sugar") states a total or an equivalence.
+_LEADING_PACK = re.compile(r"^\s*[\d\s./]+\s*\(")
 _PACK_UNITS = {"oz": "ounce", "ounce": "ounce", "lb": "pound", "pound": "pound",
                "kg": "kilogram", "g": "gram", "gram": "gram"}
 _PACK_VOLUME = {"ml": "milliliter", "l": "liter", "liter": "liter"}
@@ -83,7 +86,13 @@ def from_mass(quantity: float | None, unit: str | None) -> MethodGrams:
 def from_pack_size(quantity: float | None, line_raw: str, portions: dict) -> MethodGrams:
     """Path 2 — recover the pack size the parser dropped: "2 (16 oz.) pkg" is 2 x 453.6g.
 
-    A volume pack ("1 (12 fl oz) can") still needs the food's density, so it routes through the
+    **The parenthetical is only a PER-ITEM size when it directly follows the leading quantity.**
+    Elsewhere it is an equivalence or a total — "7 pt. (5 lb.) sugar" means those 7 pints weigh
+    5 lb, not 7 x 5 lb, and "10 eggs (1 lb.)" is one pound of eggs, not ten. Multiplying by
+    `quantity` in those cases overstated 239 lines by a factor, 3.09x in aggregate across 218
+    recipes. `_LEADING_PACK` is what distinguishes the two shapes.
+
+    A volume pack ("1 (500 ml) carton") still needs the food's density, so it routes through the
     volumetric lookup rather than being treated as a mass.
     """
     if quantity is None:
@@ -94,10 +103,13 @@ def from_pack_size(quantity: float | None, line_raw: str, portions: dict) -> Met
     amount = _to_float(match.group(1))
     if amount is None:
         return None
+    # Anchored to the leading quantity -> per item, so multiply. Otherwise the parenthetical
+    # restates the whole amount and the quantity is already accounted for inside it.
+    packs = quantity if _LEADING_PACK.match(line_raw) else 1.0
     token = match.group(2).lower()
     if token in _PACK_UNITS:
-        return (quantity * amount * MASS_GRAMS[_PACK_UNITS[token]], "pack_size")
-    volume = from_volume(quantity * amount, _PACK_VOLUME.get(token), portions)
+        return (packs * amount * MASS_GRAMS[_PACK_UNITS[token]], "pack_size")
+    volume = from_volume(packs * amount, _PACK_VOLUME.get(token), portions)
     return (volume[0], "pack_size_volume") if volume else None
 
 
@@ -153,9 +165,20 @@ def convert(quantity: float | None, unit: str | None, line_raw: str,
     """The first path that applies, or None. `portions` is this line's resolved entity's."""
     if quantity is None:
         return None
+    # Where the pack size sits in the order depends on what the line's own unit is:
+    #
+    # - a CONTAINER ("2 (16 oz.) pkg") — the parenthetical is the only statement of mass, so it
+    #   comes first;
+    # - a VOLUME ("7 pt. (5 lb.) sugar") — the food's own density is the direct reading, but a
+    #   stated mass beats no answer at all, so the parenthetical is a fallback behind it.
+    #
+    # It never precedes a volume unit, because taking "2 c. (8 oz.)" as 2 x 8 oz double-counted.
+    pack = from_pack_size(quantity, line_raw, portions)
+    container = unit not in MASS_GRAMS and unit not in CUP_EQUIVALENT
     for candidate in (from_mass(quantity, unit),
-                      from_pack_size(quantity, line_raw, portions),
+                      pack if container else None,
                       from_volume(quantity, unit, portions),
+                      None if container else pack,
                       from_count(quantity, unit, portions)):
         if candidate is not None and candidate[0] > 0:
             return candidate
