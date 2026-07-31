@@ -1,0 +1,113 @@
+version: 2
+
+# The gate. Run with `dbt build`, NOT `dbt run` + `dbt test`: build interleaves tests with
+# models, so a failing test SKIPS everything downstream instead of letting a bad row propagate
+# and be reported afterwards. That is the difference between a gate and an alarm, and the brief
+# (§6, Phase 3 DoD) asks for a gate.
+#
+# Thresholds are set to what is physically or definitionally impossible, not to what looks
+# unusual. A test that fires on merely surprising data gets muted, and a muted gate is worse
+# than none — the corpus legitimately contains 40 lb of pork fat and 13 gallons of ice cream.
+
+models:
+  - name: canonical_ingredients
+    description: The canonical USDA entity set, one row per food.
+    columns:
+      - name: canonical_id
+        description: USDA FDC id.
+        tests: [not_null, unique]
+      - name: kcal_per_100g
+        description: Energy per 100 g; null for the ~1% of foods USDA gives no energy value.
+        tests:
+          - accepted_range:
+              min_value: 0
+              max_value: 910   # pure fats top out ~902 kcal/100 g; nothing edible exceeds this
+
+  - name: recipe_ingredients_resolved
+    description: One row per recipe ingredient line, joined to its entity and mass.
+    tests:
+      - unique_line_per_recipe
+    columns:
+      - name: recipe_id
+        tests: [not_null]
+      - name: canonical_id
+        description: >
+          Null when the resolver declined or found nothing. When present it MUST name a real
+          canonical entity — a resolved ingredient pointing at a food that does not exist is
+          the referential break that would put fabricated nutrition into Gold.
+        tests:
+          - relationships:
+              to: ref('canonical_ingredients')
+              field: canonical_id
+      - name: grams
+        description: Null where no conversion path applied. Never 0 — a zero would claim the
+          ingredient weighs nothing and silently drag the recipe's totals down.
+        tests:
+          - accepted_range:
+              min_value: 0
+              inclusive: false
+
+  - name: recipe_nutrition
+    description: Per-recipe nutrition with the coverage that qualifies it.
+    columns:
+      - name: recipe_id
+        tests: [not_null, unique]
+      - name: data_trust_score
+        description: min ingredient confidence x nutrition coverage; a probability-like score.
+        tests:
+          - accepted_range:
+              min_value: 0
+              max_value: 1
+      - name: nutrition_coverage
+        tests:
+          - accepted_range:
+              min_value: 0
+              max_value: 1
+      - name: cost_coverage
+        tests:
+          - accepted_range:
+              min_value: 0
+              max_value: 1
+      - name: kcal_per_100g
+        description: >
+          The recipe's own energy density. Bounded by the same physics as a single food: no
+          mixture of foods can exceed the most energy-dense one. Breaching this means a gram
+          weight or a nutrient value is wrong, not that the recipe is unusual.
+        tests:
+          - accepted_range:
+              min_value: 0
+              max_value: 910
+      - name: total_grams
+        tests:
+          - accepted_range:
+              min_value: 0
+              inclusive: false
+      - name: servings
+        description: Stated in the recipe text for ~15%; null elsewhere, never estimated.
+        tests:
+          - accepted_range:
+              min_value: 1
+              max_value: 200
+
+  - name: recipe_tags
+    description: Dietary tags, emitted only for recipes at 100% nutrition coverage.
+    columns:
+      - name: recipe_id
+        tests: [not_null]
+      - name: tag
+        tests:
+          - accepted_values:
+              values: ["vegetarian", "vegan", "gluten-free"]
+
+  - name: ingredient_costs
+    description: Curated stand-in prices. NOT sourced data — see the model docstring.
+    columns:
+      - name: canonical_id
+        tests: [not_null, unique]
+      - name: usd_per_kg
+        description: A zero or negative price would contribute nothing while still counting as
+          costed, which is the null-vs-zero failure in a different coat.
+        tests:
+          - accepted_range:
+              min_value: 0
+              inclusive: false

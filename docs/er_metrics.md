@@ -972,6 +972,43 @@ compounds: **only 2.6% of recipes have full nutrition**, and only 73 of 15,000 h
 nutrition *and* a stated servings count. Per-line coverage looks healthy; per-recipe coverage is
 brutal. `nutrition_coverage` and `data_trust_score` exist so no total is ever quoted without it.
 
+### The quality gate (3.6), and what "blocks" means
+
+`make gate` runs **`dbt build`**, not `dbt run` followed by `dbt test`. The distinction is the
+whole feature: `run` + `test` rebuilds every Gold table from bad data and reports the failure
+*afterwards*, while `build` interleaves tests with models so a failure **skips everything
+downstream**. That is a gate; the other is an alarm.
+
+20 tests over 5 models: referential integrity (every resolved ingredient must name a real
+canonical entity — the brief names this one explicitly), uniqueness of the (recipe, line) grain,
+`data_trust_score`/coverages bounded to [0,1], strictly-positive grams and prices, and energy
+density bounded at 910 kcal/100 g.
+
+**Thresholds are set to the impossible, not the unusual.** Pure fat is ~902 kcal/100 g, so 910
+cannot be exceeded by any mixture. A gate tuned to what merely *looks* surprising would fire on
+this corpus's genuine 40 lb of pork fat and 13 gallons of ice cream, and a gate that fires on
+real data gets muted — which protects nothing.
+
+**Proven, not asserted.** `make prove-gate` injects one impossible row (50,000 kcal/100 g) into
+Silver, rebuilds, and checks two things: the test fails, *and* downstream models are skipped.
+
+| | result |
+|---|---|
+| clean build first | PASS=25 — so a later failure is the probe, not pre-existing rot |
+| test detects the bad row | **FAIL** on `accepted_range_canonical_ingredients_kcal_per_100g` |
+| Gold models rebuilt from it | **none** — `recipe_ingredients_resolved`, `recipe_nutrition`, `recipe_tags` all SKIP |
+| after removing the row | rebuilds clean, exit 0 |
+
+The probe row is deleted in a `finally` and Gold is rebuilt at the end, so an interrupted proof
+cannot leave poisoned data behind. Same reasoning as §13's mutation sweep: a gate nobody has
+watched fail is not evidence of a gate.
+
+**Great Expectations is declared but not configured.** §4 locks "dbt tests + Great Expectations";
+the `quality` dependency group exists and is deliberately outside CI, but no expectation suite
+has been written. The dbt tests cover the checks the brief actually enumerates (nutrient bounds,
+referential integrity, confidence thresholds). GE's distinct value would be distribution drift,
+which nothing here needs yet — stated as an open deviation rather than quietly dropped.
+
 ## Still to measure
 - **Dry mix vs ready-to-eat** as a rule-2b extension: `chocolate pudding`, `black cherry jello`
   and `coffee creamer` all fail this way, with 2–6× kcal consequences.
