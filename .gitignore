@@ -15,6 +15,8 @@ data/*
 # ...except the hand-labeled gold set: it is irreplaceable human judgment and the
 # ground truth behind the headline precision/recall metric, so it IS version-controlled.
 !data/gold_labels/
+!data/gram_reference.csv
+!data/entity_overrides.csv
 
 # IDE
 .idea/
@@ -28,3 +30,16 @@ data/*
 *.key
 *.p12
 *credentials*.json
+
+# dbt
+target/
+dbt_packages/
+logs/
+.user.yml
+
+# Airflow / Great Expectations working dirs (isolated dep groups, run locally)
+airflow.db
+airflow-webserver.pid
+standalone_admin_password.txt
+gx/uncommitted/
+great_expectations/uncommitted/

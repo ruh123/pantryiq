@@ -90,6 +90,12 @@ FILLER = SIZE_WORDS | {
     "to",
 }
 
+# US recipe convention: capital "T" is tablespoon, lowercase "t" is teaspoon — a 3x difference
+# in the quantity, and UNITS is keyed on the lowercased token so it cannot express this. Checked
+# against the RAW token before that lookup. `unit` feeds Phase 3's gram conversion directly, so
+# reading "3 T. butter" as 3 teaspoons understates it by 2/3.
+CASE_SENSITIVE_UNITS = {"T": "tablespoon", "t": "teaspoon"}
+
 # "pound cake" is a food, not a measure; every other unit word leading a normalized string
 # was a leaked container unit when checked against the real corpus.
 _STRIPPABLE_UNITS = set(UNITS) - {"pound"}
@@ -189,7 +195,7 @@ def parse_line(line: str) -> ParsedLine:
     # Only consume the token as a unit if something is left to be the ingredient — a line
     # reading just "cloves" names the food, not the measure.
     if token and token.group(1).lower() in UNITS and candidate[token.end():].strip():
-        unit = UNITS[token.group(1).lower()]
+        unit = CASE_SENSITIVE_UNITS.get(token.group(1), UNITS[token.group(1).lower()])
         rest = candidate[token.end():]
 
     return ParsedLine(quantity, unit, rest.strip())

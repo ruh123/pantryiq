@@ -89,8 +89,9 @@ def test_the_interval_is_reproducible():
             == stratified_ci(by_stratum, TOTALS, weighted=True, iterations=200))
 
 
-# The published figures, regenerated 2026-07-31 after the tie-break and parser fixes.
-HEADLINE = {"equivalent": (0.692, 0.774), "entity": (0.475, 0.581)}
+# The published figures, regenerated 2026-07-31 after the head-string entity overrides
+# (er_metrics.md §14). The previous values were (0.692, 0.774) / (0.475, 0.581).
+HEADLINE = {"equivalent": (0.693, 0.810), "entity": (0.477, 0.673)}
 
 
 @pytest.mark.parametrize("key,expected", sorted(HEADLINE.items()))

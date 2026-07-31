@@ -191,3 +191,30 @@ def test_normalizing_an_already_normalized_string_changes_nothing(line, _quantit
     the wrong order. A non-idempotent normalizer leaves two spellings of one food as two
     entities, each separately resolved and separately wrong."""
     assert normalize(normalized) == normalized
+
+
+# US recipe convention: capital T is tablespoon, lowercase t is teaspoon.
+@pytest.mark.parametrize("line,unit", [
+    ("3 T. butter", "tablespoon"),
+    ("2 T minced garlic", "tablespoon"),
+    ("1 T. olive oil", "tablespoon"),
+    ("3 t. butter", "teaspoon"),
+    ("1 t vanilla", "teaspoon"),
+    ("2 tsp. sugar", "teaspoon"),
+    ("2 tbsp. sugar", "tablespoon"),
+])
+def test_capital_t_is_tablespoon_and_lowercase_t_is_teaspoon(line, unit):
+    """A 3x error. `UNITS` is keyed on the lowercased token and mapped "t" -> teaspoon, so every
+    capital-T line was read as teaspoons — 23 lines in the corpus, against only 41 that use a
+    lowercase t at all. Harmless while `unit` was unused, but Phase 3's gram conversion consumes
+    it directly, so it would have understated those quantities by two thirds."""
+    assert parse_line(line).unit == unit
+
+
+def test_the_case_fix_does_not_touch_normalized_text():
+    """`unit` and `ingredient_text` are split from the same token, and normalized_text is the
+    join key for the entity map and all 300 gold labels. Changing which unit the token maps to
+    must not change what is left over as the food."""
+    assert parse_line("3 T. butter").ingredient_text == "butter"
+    assert normalize(parse_line("3 T. butter").ingredient_text) == "butter"
+    assert normalize(parse_line("3 t. butter").ingredient_text) == "butter"

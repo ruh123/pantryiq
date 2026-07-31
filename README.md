@@ -17,8 +17,8 @@ resolver **commits to a USDA entity for 6,279 of them (68.5%) and declines on 2,
 
 | Headline — stratified over the corpus, **among the 68.5% of strings the resolver does not decline** | per unique string | per occurrence |
 |---|---|---|
-| **nutrition within 10%, or within 5 kcal/100g, of the gold label** | 69.2% [60.1, 78.0] | **77.4%** [62.7, 86.4] |
-| entity top-1 | 47.5% [37.8, 57.5] | 58.1% [36.7, 73.2] |
+| **nutrition within 10%, or within 5 kcal/100g, of the gold label** | 69.3% [60.2, 78.1] | **81.0%** [69.3, 88.0] |
+| entity top-1 | 47.7% [37.9, 57.6] | 67.3% [49.5, 78.5] |
 
 The per-occurrence column is the one that describes the product: head strings are 5.9% of the
 vocabulary but 83.8% of what a user actually hits. Accuracy is **conditional on not declining** —
@@ -74,7 +74,22 @@ candidate generation at recall@50 = 90.5%, a shipped resolver, and the entity ma
 Claude adjudicator was **investigated and not built** — its accuracy turns out to be structurally
 unmeasurable against an LLM-labeled gold set (§10).
 
-**Phase 3 next** — unit→gram conversion and servings. `foodPortions.gramWeight` is absent from the
+**Phase 3 in progress** — Bronze USDA portions, gram conversion, and a dbt Gold layer are built:
+63.9% of ingredient lines convert to a mass, and `gold.recipe_nutrition` carries per-recipe and
+per-100g nutrition with `nutrition_coverage` and `data_trust_score`. Two findings worth reading
+before quoting anything from Gold ([§14](docs/er_metrics.md)):
+
+- **Gram conversion is 83.2% accurate** against published reference weights — but it was **64.1%**
+  until 13 head-string entity errors were corrected. `sugar` resolved to *powdered* sugar (110 g/cup
+  against 200), `egg` to **Eggnog**, `milk` to **Crackers, milk**. The kcal headline was blind to all
+  of them: powdered and granulated sugar carry near-identical energy. Those corrections are
+  **hand-asserted**, adopted only after a principled re-ranking rule was measured and failed.
+- **Only 2.6% of recipes have complete nutrition.** Per-line coverage is 63.9%, but a recipe needs
+  every line, so completeness compounds. Nothing quotes a recipe total without its coverage.
+
+**Still to build** — the cost table, the quality gate, and the Airflow DAG.
+
+Earlier note, now resolved: `foodPortions.gramWeight` is absent from the
 abridged `/foods/list` payload in Bronze, but `POST /v1/foods` with `format=full` serves it (~410
 requests for all 8,187 foods), so no bulk download is needed.
 

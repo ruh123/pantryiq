@@ -4,7 +4,14 @@ import json
 import duckdb
 import pytest
 
-from pantryiq.er.resolve import LOW_CONFIDENCE, load_curve, resolve, save_curve, top_picks
+from pantryiq.er.resolve import (
+    LOW_CONFIDENCE,
+    load_curve,
+    load_overrides,
+    resolve,
+    save_curve,
+    top_picks,
+)
 
 
 @pytest.fixture
@@ -152,3 +159,26 @@ def test_the_saved_curve_reproduces_the_fitted_one_at_its_own_knots(tmp_path):
     for knot in fitted.X_thresholds_:
         assert confidence(float(knot)) == pytest.approx(
             float(fitted.predict([knot])[0]), abs=1e-9)
+
+
+def test_an_override_replaces_the_pick_but_not_its_cosine(db, curve, tmp_path, monkeypatch):
+    """The override corrects WHICH entity is right; it says nothing about how confidently the
+    embedding found it. Overwriting the cosine would launder a hand-assertion into a similarity
+    score and silently change both the flag and the abstention decision."""
+    overrides = tmp_path / "ov.csv"
+    overrides.write_text("normalized_text,fdc_id\negg,999\n", encoding="utf-8")
+
+    # `load_overrides`'s default path is bound at definition time, so the function is
+    # patched rather than the module constant.
+    monkeypatch.setattr("pantryiq.er.resolve.load_overrides",
+                        lambda *a, **k: load_overrides(overrides))
+    rows = {text: (fdc_id, cosine) for text, fdc_id, cosine, *_ in resolve(db, curve)}
+
+    assert rows["egg"][0] == "999"        # the pick is replaced
+    assert rows["egg"][1] == 0.95         # the measured cosine is untouched
+    assert rows["flour"][0] == "4"        # unlisted strings are unaffected
+
+
+def test_a_missing_overrides_file_changes_nothing(db, curve, tmp_path):
+    """The resolver must behave exactly as before on a checkout without the file."""
+    assert load_overrides(tmp_path / "absent.csv") == {}

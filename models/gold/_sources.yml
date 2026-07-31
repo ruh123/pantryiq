@@ -1,0 +1,15 @@
+version: 2
+
+# Silver is written by tested Python (parsing, entity resolution, gram conversion) and read
+# here as a source. dbt does not manage it: the logic upstream is fallback-heavy and belongs in
+# code that can be unit-tested, while dbt does the declarative aggregation it is good at.
+sources:
+  - name: silver
+    schema: silver
+    tables:
+      - name: recipe_ingredient_lines
+      - name: ingredient_entity_map
+      - name: recipe_ingredient_grams
+      - name: usda_foods
+      - name: distinct_ingredient_strings
+      - name: recipe_servings

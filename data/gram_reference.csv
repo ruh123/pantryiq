@@ -1,0 +1,35 @@
+normalized_text,unit,grams_per_unit,source_note
+sugar,cup,200.0,granulated sugar — USDA SR Legacy 19335 "Sugars granulated" 1 cup = 200 g
+sugar,tablespoon,12.5,granulated — 200 g/cup / 16
+salt,teaspoon,6.0,"USDA SR Legacy 02047 ""Salt table"" 1 tsp = 6.0 g"
+flour,cup,125.0,all-purpose flour unsifted — USDA SR Legacy 20081 1 cup = 125 g
+flour,tablespoon,7.8,all-purpose — 125 g/cup / 16
+all-purpose flour,cup,125.0,USDA SR Legacy 20081 1 cup = 125 g
+vanilla,teaspoon,4.2,"USDA SR Legacy 02050 ""Vanilla extract"" 1 tsp = 4.2 g"
+butter,cup,227.0,1 cup = 2 sticks = 8 oz = 227 g
+butter,tablespoon,14.2,227 g/cup / 16
+margarine,cup,227.0,same stick convention as butter
+margarine,tablespoon,14.2,227 g/cup / 16
+baking powder,teaspoon,4.6,"USDA SR Legacy 18369 ""Leavening agents baking powder"" 1 tsp = 4.6 g"
+baking soda,teaspoon,4.6,"USDA SR Legacy 18372 ""Leavening agents baking soda"" 1 tsp = 4.6 g"
+soda,teaspoon,4.6,baking soda — same as above
+pepper,teaspoon,2.3,"ground black pepper — USDA SR Legacy 02030 1 tsp = 2.3 g"
+nutmeg,teaspoon,2.2,"ground nutmeg — USDA SR Legacy 02025 1 tsp = 2.2 g"
+onion,cup,160.0,"chopped raw onion — USDA SR Legacy 11282 ""cup chopped"" = 160 g"
+onion,tablespoon,10.0,chopped raw onion — 160 g/cup / 16
+celery,cup,101.0,"diced raw celery — USDA SR Legacy 11143 ""cup diced"" = 101 g"
+green pepper,cup,149.0,"chopped raw sweet green pepper — USDA SR Legacy 11333 = 149 g"
+brown sugar,cup,220.0,"packed brown sugar — USDA SR Legacy 19334 ""cup packed"" = 220 g"
+oil,cup,218.0,vegetable oil — USDA SR Legacy 04518 1 cup = 218 g
+vinegar,cup,239.0,cider vinegar — USDA SR Legacy 02048 1 cup = 239 g
+sour cream,cup,230.0,USDA SR Legacy 01056 1 cup = 230 g
+cream cheese,package,226.8,standard 8 oz retail block = 226.8 g
+cream cheese,ounce,28.35,1 avoirdupois ounce
+cheddar cheese,cup,113.0,"shredded cheddar — USDA SR Legacy 01009 ""cup shredded"" = 113 g"
+lemon juice,tablespoon,15.2,raw lemon juice — USDA SR Legacy 09152 1 tbsp = 15.2 g
+ground beef,pound,453.59,1 avoirdupois pound
+pecan,cup,99.0,"pecan halves — USDA SR Legacy 12142 ""cup halves"" = 99 g"
+walnut,cup,117.0,"chopped walnuts — USDA SR Legacy 12155 ""cup chopped"" = 117 g"
+nut,cup,120.0,"generic chopped nuts — mid-range of pecan/walnut/almond cup weights"
+raisin,cup,145.0,"seedless raisins packed — USDA SR Legacy 09298 ""cup packed"" = 165 g; loose = 145 g"
+coconut,cup,93.0,"sweetened shredded coconut — USDA SR Legacy 12108 ""cup shredded"" = 93 g"

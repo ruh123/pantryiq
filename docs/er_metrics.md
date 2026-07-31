@@ -858,6 +858,120 @@ The remaining twelve were closed by:
 > run that passes** — without one it measures whether the harness is broken, not whether the
 > tests discriminate. The numbers above are from a sweep whose control is green at 284/284.
 
+## 14. Phase 3 — grams, and the accuracy nobody had measured
+
+Phase 3 needed a mass per ingredient line, since every nutrient in `silver.usda_foods` is per
+100 g while recipes say "2 cups". Building it surfaced a gap in the project's own standards.
+
+### The asymmetry that started it
+
+| | coverage | accuracy |
+|---|---|---|
+| entity resolution | measured | **measured exhaustively** — 300 labels, §1-§13 |
+| gram conversion | measured (58.9%) | **never measured — not one labeled example** |
+
+Every Gold number is `grams x kcal_per_100g / 100`. Phase 2 proved the second factor and said
+nothing about the first, yet recipe nutrition is roughly their product. `gram_accuracy.py` (3.3b)
+closes that: 34 (ingredient, unit) pairs covering ~46% of converted lines, checked against
+**published reference values with their source recorded** in `data/gram_reference.csv`. Unlike
+the ER labels — LLM-produced, α = 0.721 — a reader can verify every row of this ground truth.
+
+**First measurement: 64.1% of converted lines were within 10% of the reference.**
+
+### What it found: the kcal metric is blind to mass errors
+
+The corpus's single most frequent conversion, `sugar` + `cup` on 4,170 lines, read **110 g
+against a true 200 g**. Bare "sugar" resolved to *powdered* sugar. §11's kcal headline could not
+see this — powdered and granulated sugar carry near-identical energy per 100 g — so a 45% mass
+error sat in the head of the corpus, unflagged and unabstained, through all of Phase 2.
+
+It was not alone. Auditing the top 40 head strings by occurrence:
+
+| string | occurrences | resolved to | should be |
+|---|---|---|---|
+| `egg` | 4,399 | **Eggnog** | Egg, whole, raw |
+| `flour` | 2,870 | **Millet flour** | Wheat flour, white, all-purpose |
+| `milk` | 2,336 | **Crackers, milk** | Milk, whole |
+| `pepper` | 1,329 | **Peppermint, fresh** | Spices, pepper, black |
+| `cinnamon` | 1,066 | **Bread, cinnamon** | Spices, cinnamon, ground |
+| `sugar` | 5,095 | **Sugars, powdered** | Sugars, granulated |
+
+~19,000 occurrences of confidently-wrong head resolutions, all at high cosine, none flagged.
+
+### A principled rule was tried first, and did not work
+
+Before hand-correcting anything, two penalties were measured on all 9,163 strings: a **whole-word**
+requirement (the query's head noun must appear as a whole word — "pepper" is not one in
+"Peppermint") and a **derived-form** penalty (a leading facet of Oil/Flour/Syrup the query never
+asked for).
+
+| | before | after |
+|---|---|---|
+| gram accuracy, fixed denominator | 64.0% | **64.0%** |
+| occurrence-weighted | 61.4% | **61.4%** |
+| kcal-equivalent vs gold labels | 58.9% | 60.9% |
+
+It fixed `pepper` and nothing else — 0.05 penalties cannot close the 0.06-0.09 cosine gaps on
+`sugar`, `nutmeg`, `coconut` — while moving 963 strings (10.5%) for no measurable gram gain.
+**Not adopted**, on the same reasoning as §8's deprioritization fix.
+
+> Two measurement traps caught while running it, both worth recording. A **free denominator**
+> showed 83.1% "after" — pure survivorship, because changed picks lacked portion data and simply
+> stopped being scored. A **fixed denominator** excludes exactly the pairs the fix helps most.
+> Neither is honest alone. And a **plural bug** (stripping the "s" from the query but not the
+> description) sent `onion` to `DENNY'S, onion rings` — a blunt penalty across 9,163 strings does
+> collateral damage that a single headline number hides.
+
+### What shipped: bounded, auditable overrides
+
+`data/entity_overrides.csv` — 13 head strings, each recording the entity, what it replaces, and
+why, applied in `resolve.load_overrides`. **These are assertions, not learned**, adopted only
+after the principled alternative was measured and failed. They are deliberately bounded (nothing
+unlisted changes), auditable (every row is checkable against USDA), and the file is optional —
+absent, the resolver behaves exactly as before.
+
+An overridden string **keeps its measured cosine**. The override corrects *which* entity is
+right and says nothing about how confidently the embedding found it; overwriting the cosine would
+launder a hand-assertion into a similarity score and silently move both the flag and the
+abstention.
+
+| metric | before | after |
+|---|---|---|
+| gram accuracy (per occurrence) | 64.1% | **83.2%** |
+| gram coverage | 58.9% | **63.9%** |
+| kcal equivalence (per occurrence) | 77.4% | **81.0%** |
+| entity top-1 (per occurrence) | 58.1% | **67.3%** |
+
+Coverage rose because correct entities carry better portion data: `Egg, whole, raw` has a
+per-egg weight, `Eggnog` has a cup weight that never applies to "2 eggs".
+
+### How much of that gain to believe
+
+- **The gram figure is partly circular.** `gram_reference.csv` asserts "sugar = 200 g/cup
+  (granulated)" and the override sends `sugar` to granulated — both encode one belief, so the
+  +19.1pp overstates the independent gain. The underlying weights are USDA's published values,
+  so it is not *fully* circular, but it is not a clean read either.
+- **The kcal and entity gains are not circular.** They are measured against gold labels produced
+  by a separate annotator before overrides existed: **+3.6pp kcal, +9.2pp entity**. Those are
+  the defensible numbers.
+- **Two overridden strings (`cinnamon`, `soda`) are in the gold set.** Both are in *tune*,
+  neither in the holdout, and both **agree** with their independently-produced labels — so the
+  frozen estimate is uncontaminated and no ground truth was overridden.
+
+### Still wrong after the overrides
+
+5,076 lines among those checked (16.8%), led by `coconut` + `cup` (218 g against 93 g — the
+resolver still picks coconut oil) and a cluster of chopped-vegetable cup weights 14-19% light
+(`onion`, `green pepper`, `nut`, `walnut`), where USDA's unqualified cup weight differs from its
+"cup, chopped" weight and the recipe line does not say which.
+
+### Coverage is the real Phase-3 limitation
+
+63.9% of lines convert, but a recipe needs **every** line to be complete — so completeness
+compounds: **only 2.6% of recipes have full nutrition**, and only 73 of 15,000 have full
+nutrition *and* a stated servings count. Per-line coverage looks healthy; per-recipe coverage is
+brutal. `nutrition_coverage` and `data_trust_score` exist so no total is ever quoted without it.
+
 ## Still to measure
 - **Dry mix vs ready-to-eat** as a rule-2b extension: `chocolate pudding`, `black cherry jello`
   and `coffee creamer` all fail this way, with 2–6× kcal consequences.

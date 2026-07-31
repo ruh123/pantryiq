@@ -1,0 +1,13 @@
+# Kept in the repo rather than ~/.dbt so a clone can build Gold without setup. It holds no
+# secrets: the warehouse is a local DuckDB file, and the path is relative to the project root.
+pantryiq:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: data/pantryiq.duckdb
+      # dbt-duckdb attaches the same file Python writes Silver into, so Gold builds against the
+      # live Silver tables with no copy step. Nothing may run dbt and the Python pipeline at the
+      # same time — DuckDB takes a single writer lock.
+      schema: gold
+      threads: 4

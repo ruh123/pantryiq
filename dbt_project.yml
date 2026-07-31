@@ -1,0 +1,20 @@
+name: pantryiq
+version: "1.0.0"
+config-version: 2
+
+profile: pantryiq
+
+model-paths: ["models"]
+test-paths: ["dbt_tests"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+# Gold is on the serving hot path (the Phase-4 agent queries it per request), so every model is
+# a real table rather than a view — the join work is done once at build time, not per query.
+# Silver stays Python-managed: parsing and fallback logic belong in tested code, not in SQL.
+# No `+schema:` here — dbt CONCATENATES it onto the profile's schema, so setting both produced
+# `gold_gold`. The profile already targets `gold`.
+models:
+  pantryiq:
+    gold:
+      +materialized: table

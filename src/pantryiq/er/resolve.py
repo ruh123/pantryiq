@@ -22,6 +22,7 @@ Run:  uv run python -m pantryiq.er.resolve
 """
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 
@@ -34,6 +35,7 @@ from pantryiq.er.labeling import DEFAULT_DB, NO_MATCH, load_labels, load_sample
 from pantryiq.er.nutrition import EQUIVALENT, error
 
 CURVE_PATH = Path("data/confidence_curve.json")
+OVERRIDES_PATH = Path("data/entity_overrides.csv")
 # Chosen on the tune split, not the holdout. The isotonic curve is a coarse step function, so
 # cuts cluster: anything in 0.40-0.50 flags the same 23% of tune strings, and that band is 35%
 # nutritionally equivalent against 63% for the rest. A lower cut (0.35) flagged 2 strings out of
@@ -116,6 +118,25 @@ def load_curve(path: Path | str = CURVE_PATH):
     return confidence
 
 
+def load_overrides(path: Path | str = OVERRIDES_PATH) -> dict[str, str]:
+    """{normalized_text: fdc_id} — hand-corrected picks for head strings.
+
+    These are ASSERTIONS, not learned, and they exist because a measured, principled re-ranking
+    rule could not fix them (see er_metrics.md §14): embedding similarity puts `egg` on Eggnog,
+    `milk` on Crackers-milk and `sugar` on powdered sugar, and the kcal-based headline is blind
+    to the last one because powdered and granulated sugar carry near-identical energy.
+
+    Deliberately bounded and auditable: only strings listed in the CSV change, each row records
+    what it replaces and why, and every one can be checked against USDA by a reader. Returns {}
+    when the file is absent, so the resolver behaves exactly as before without it.
+    """
+    path = Path(path)
+    if not path.exists():
+        return {}
+    with path.open(encoding="utf-8") as handle:
+        return {row["normalized_text"]: row["fdc_id"] for row in csv.DictReader(handle)}
+
+
 def resolve(db_path: Path | str = DEFAULT_DB, curve_path: Path | str = CURVE_PATH,
             strings: list[str] | None = None, abstain_threshold: float | None = None):
     """[(text, fdc_id, cosine, confidence, flagged, abstained)] for every distinct string.
@@ -134,8 +155,14 @@ def resolve(db_path: Path | str = DEFAULT_DB, curve_path: Path | str = CURVE_PAT
     """
     confidence = load_curve(curve_path)
     threshold = load_threshold() if abstain_threshold is None else abstain_threshold
+    overrides = load_overrides()
     out = []
     for text, fdc_id, cosine in top_picks(db_path, strings):
+        # An overridden string keeps its measured cosine — the override corrects WHICH entity is
+        # right, and says nothing about how confidently the embedding found it. Overwriting the
+        # cosine would launder a hand-assertion into a similarity score and quietly change both
+        # the flag and the abstention.
+        fdc_id = overrides.get(text, fdc_id)
         score = confidence(cosine)
         out.append((text, fdc_id, cosine, score, score < LOW_CONFIDENCE, cosine < threshold))
     return out
