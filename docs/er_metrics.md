@@ -1009,6 +1009,39 @@ has been written. The dbt tests cover the checks the brief actually enumerates (
 referential integrity, confidence thresholds). GE's distinct value would be distribution drift,
 which nothing here needs yet — stated as an open deviation rather than quietly dropped.
 
+### Orchestration (3.7)
+
+`dags/pantryiq_pipeline.py` — 11 tasks, Bronze-derived Silver through the gated Gold build.
+Every task calls the same `main()` a human would run by hand, so the DAG orchestrates the
+documented interface rather than a second implementation that could drift from it.
+
+**Strictly sequential, and that is correctness rather than style.** Silver and Gold share one
+DuckDB file and DuckDB takes an exclusive write lock, so two concurrent writers do not
+interleave — they fail. `max_active_tasks = 1`, asserted in a test so the next person to
+"optimise" the DAG with parallelism finds out at test time.
+
+**The gate is one task, not two.** The plan's original shape had `dbt_run` then `dbt_test` as
+separate tasks; splitting them reintroduces exactly the hole 3.6 closes, so the DAG runs
+`dbt build`.
+
+**Ingestion is a separate, manual DAG.** The Bronze pulls are slow, and more importantly their
+outputs are the frozen reference the 300 gold labels and every §7-§14 metric are pinned to.
+Scheduling them would move the ground truth under the measurements without anyone deciding to.
+
+Both DoD halves demonstrated:
+
+| | result |
+|---|---|
+| end-to-end run | `state=success`, 11/11 tasks, dbt `PASS=25`, 15.2 s |
+| re-run idempotent | identical row counts **and** an identical SHA of `gold.recipe_nutrition`'s contents |
+
+The content hash matters more than the counts: a stale no-op — a step that silently did nothing
+— would preserve every row count while leaving the data unchanged from a previous run. Only
+hashing the values distinguishes "rebuilt to the same answer" from "did not rebuild".
+
+Airflow lives in an isolated dependency group. With it: 404 tests. Without it (what CI runs):
+399 pass, 1 skips. The isolation is verified rather than assumed.
+
 ## Still to measure
 - **Dry mix vs ready-to-eat** as a rule-2b extension: `chocolate pudding`, `black cherry jello`
   and `coffee creamer` all fail this way, with 2–6× kcal consequences.
