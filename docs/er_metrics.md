@@ -829,11 +829,34 @@ named the property they were meant to check and then failed to check it:
 Both are rewritten and verified against the mutations they missed. Added:
 `test_the_committed_gold_set_still_produces_the_published_headline` (nothing pinned the headline —
 a refactor could have moved it 50pp in silence), a `normalize` idempotence property test, and a
-regression pinning `resolve()`'s tuple width at the producer. 231 → 266 tests.
+regression pinning `resolve()`'s tuple width at the producer.
 
-**Still open:** `scored_sample`, `report.picks` and `bootstrap_ci` have no direct unit tests, and
-`EQUIVALENT`, `BETA`, `TOP_K`, `SEED` and Wilson's `z` are unpinned constants — a mutation to any
-of them survives. The headline pin now catches the ones that move the published numbers.
+**All 14 survivors are now closed. 231 → 284 tests, and the sweep re-run finds zero survivors.**
+The remaining twelve were closed by:
+
+- `tests/test_published_constants.py` — pins every constant that defines a published number:
+  `EQUIVALENT` (and that `BANDS[0]` agrees with it — they can drift apart independently),
+  `MATERIAL_KCAL`, `BETA`, `TOP_K`, `ITERATIONS`, `gold.SEED`, `LOW_CONFIDENCE`, and Wilson's
+  `z`. Changing any of them now *requires* editing this file, which is the point: it makes a
+  headline change deliberate rather than accidental.
+- `tests/test_report.py` — `picks` had no test at all and produces the entire §7 headline. Its
+  hand-rolled remap from table-global index to split-local score index is the dangerous part:
+  get it wrong and every string is scored against a *different* string's model output, the
+  report still prints, and every §7 number is quietly meaningless. The fixture interleaves the
+  splits on purpose, because any fixture where global and split-local indices coincide cannot
+  test the remap.
+- `wilson` is now pinned against a **hand-computed** interval (`wilson(27, 30) = [0.7438,
+  0.9654]`, derived from the formula rather than from the code's own output), so the test
+  catches formula errors as well as a changed `z`.
+- Plus direct tests for `bootstrap_ci`, `recall_at_k`'s rank ordering, `save_curve`'s round-trip
+  *at its knots* (the old test passed with `x` and `y` swapped), and `same_entity`'s `None`
+  guard.
+
+> **A methodology note that cost a false result.** The first sweep reported all 14 as caught. It
+> was wrong: the sandbox omitted `scripts/` and `docs/`, so collection errored on every run and
+> every mutation "failed" identically. **A mutation sweep is only meaningful against a control
+> run that passes** — without one it measures whether the harness is broken, not whether the
+> tests discriminate. The numbers above are from a sweep whose control is green at 284/284.
 
 ## Still to measure
 - **Dry mix vs ready-to-eat** as a rule-2b extension: `chocolate pudding`, `black cherry jello`

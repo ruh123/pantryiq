@@ -1,7 +1,7 @@
 """Paired statistics: sensitive where independent intervals are not, and honest at small n."""
 import numpy as np
 
-from pantryiq.er.evaluate import mcnemar, paired_bootstrap
+from pantryiq.er.evaluate import bootstrap_ci, mcnemar, paired_bootstrap
 
 
 def test_mcnemar_ignores_strings_where_both_rankers_agree():
@@ -75,3 +75,25 @@ def test_paired_bootstrap_accepts_a_median_statistic():
 
 def test_paired_bootstrap_handles_an_empty_comparison():
     assert paired_bootstrap([]) == (0.0, 0.0, 0.0, 0.5)
+
+
+def test_bootstrap_ci_brackets_the_statistic_and_is_reproducible():
+    """Produces §7's [53.2, 74.0]-style intervals and had no direct test — it was imported by
+    name nowhere in this file. A seeded resample must be deterministic, or two runs of the same
+    report disagree about their own confidence intervals."""
+    values = [0.0] * 30 + [1.0] * 70
+
+    observed, low, high = bootstrap_ci(values, iterations=2000)
+
+    assert observed == 0.70
+    assert low < observed < high
+    assert bootstrap_ci(values, iterations=2000) == bootstrap_ci(values, iterations=2000)
+
+
+def test_bootstrap_ci_narrows_as_the_sample_grows():
+    """The property that makes an interval mean anything. A mutation dropping ITERATIONS to 5
+    leaves this readable but the interval becomes noise — hence the constant is pinned too."""
+    small = bootstrap_ci([0.0, 1.0] * 5, iterations=2000)
+    large = bootstrap_ci([0.0, 1.0] * 250, iterations=2000)
+
+    assert (large[2] - large[1]) < (small[2] - small[1])

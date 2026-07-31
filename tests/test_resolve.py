@@ -136,3 +136,19 @@ def test_the_curve_round_trips_through_disk(tmp_path):
 
     confidence = load_curve(path)
     assert confidence(0.4) < confidence(1.0)
+
+
+def test_the_saved_curve_reproduces_the_fitted_one_at_its_own_knots(tmp_path):
+    """`test_the_curve_round_trips_through_disk` asserts only that confidence(0.4) <
+    confidence(1.0), which a curve written with x and y SWAPPED also satisfies — that mutation
+    survived. A corrupted confidence curve on disk changes `flagged` for every string in the
+    entity map, so the round-trip has to be checked at actual values."""
+    from sklearn.isotonic import IsotonicRegression
+
+    fitted = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0).fit(
+        [0.4, 0.6, 0.8, 1.0], [0.0, 0.0, 1.0, 1.0])
+    confidence = load_curve(save_curve(fitted, tmp_path / "c.json"))
+
+    for knot in fitted.X_thresholds_:
+        assert confidence(float(knot)) == pytest.approx(
+            float(fitted.predict([knot])[0]), abs=1e-9)

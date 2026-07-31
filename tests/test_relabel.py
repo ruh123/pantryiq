@@ -5,7 +5,7 @@ import json
 import duckdb
 import pytest
 
-from pantryiq.er.labeling import append_label, label_rows, load_labels, make_label
+from pantryiq.er.labeling import NO_MATCH, append_label, label_rows, load_labels, make_label
 from pantryiq.er.relabel import (
     agreement,
     draw,
@@ -203,3 +203,23 @@ def test_wilson_brackets_the_estimate_and_stays_in_bounds():
     perfect_low, perfect_high = wilson(30, 30)
     assert perfect_high == 1.0
     assert perfect_low < 1.0  # 30/30 is not proof of 100% — the interval must stay open
+
+
+def test_two_ids_missing_from_the_description_map_do_not_count_as_agreeing():
+    """`first is not None and first == second` — drop the None guard and two unknown ids both
+    map to None, so `None == None` reports agreement between two entities nobody can name. This
+    is the agreement primitive behind the relabel rate, the ensemble, and the entity headline,
+    so a false True there inflates all three."""
+    assert same_entity("known-a", "known-b", {"known-a": "Butter", "known-b": "Butter"})
+    assert not same_entity("ghost-a", "ghost-b", {})
+    assert not same_entity("ghost-a", "ghost-b", {"other": "Butter"})
+
+
+def test_no_match_never_agrees_with_an_entity_but_does_with_itself():
+    """The null class is a real judgment, not a missing one: two annotators both saying "no USDA
+    entity exists" agree, while "no-match" against any entity is a genuine disagreement."""
+    description = {"1": "Butter", "2": "Butter"}
+
+    assert same_entity(NO_MATCH, NO_MATCH, description)
+    assert not same_entity(NO_MATCH, "1", description)
+    assert not same_entity("1", NO_MATCH, description)

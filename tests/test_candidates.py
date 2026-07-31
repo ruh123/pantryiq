@@ -148,3 +148,22 @@ def test_recall_credits_the_duplicate_twin():
 
     assert recall_at_k(table, labels, 5) == 0.0
     assert recall_at_k(table, labels, 5, aliases={"1": {"1", "9"}, "9": {"1", "9"}}) == 1.0
+
+
+def test_recall_at_k_reads_the_rank_column_not_the_row_order():
+    """Every other fixture in this file inserts rows already in rank order, which makes the
+    internal `sorted(...)` a no-op in the tests and load-bearing in production — a mutation that
+    took rows in table order survived the whole suite. recall@50 = 90.5% is the ceiling on
+    everything downstream, so it must come from `rank`, not from however DuckDB returned the
+    rows.
+
+    Here the gold entity is at rank 0 but stored LAST, so reading table order finds it only at
+    k=3 while reading rank finds it at k=1."""
+    candidates = pa.table({
+        "normalized_text": ["egg"] * 3,
+        "fdc_id": ["wrong-a", "wrong-b", "gold"],
+        "rank": [2, 1, 0],
+    })
+
+    assert recall_at_k(candidates, {"egg": "gold"}, k=1) == 1.0
+    assert recall_at_k(candidates, {"egg": "gold"}, k=3) == 1.0
