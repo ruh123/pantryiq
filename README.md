@@ -89,9 +89,8 @@ before quoting anything from Gold ([§14](docs/er_metrics.md)):
 
 **Still to build** — the cost table, the quality gate, and the Airflow DAG.
 
-Earlier note, now resolved: `foodPortions.gramWeight` is absent from the
-abridged `/foods/list` payload in Bronze, but `POST /v1/foods` with `format=full` serves it (~410
-requests for all 8,187 foods), so no bulk download is needed.
+(`foodPortions.gramWeight` is absent from the abridged `/foods/list` payload in Bronze, but
+`POST /v1/foods` with `format=full` serves it in ~410 requests — no bulk download needed.)
 
 - Measured results, including the negative ones: [`docs/er_metrics.md`](docs/er_metrics.md)
 - Labeling convention: [`docs/labeling_guide.md`](docs/labeling_guide.md)
