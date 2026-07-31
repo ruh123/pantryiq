@@ -43,10 +43,16 @@ nutrients as (
         lines.grams / 100.0 * foods.kcal_per_100g      as kcal,
         lines.grams / 100.0 * foods.protein_g_per_100g as protein_g,
         lines.grams / 100.0 * foods.fat_g_per_100g     as fat_g,
-        lines.grams / 100.0 * foods.carb_g_per_100g    as carb_g
+        lines.grams / 100.0 * foods.carb_g_per_100g    as carb_g,
+        lines.grams / 1000.0 * costs.usd_per_kg        as usd,
+        -- A line is costed only if it is also nutritionally counted, so cost and nutrition
+        -- describe the same set of ingredients and their coverages are comparable.
+        (lines.contributes_nutrition and costs.usd_per_kg is not null) as contributes_cost
     from lines
     left join {{ ref('canonical_ingredients') }} as foods
         on foods.canonical_id = lines.canonical_id
+    left join {{ ref('ingredient_costs') }} as costs
+        on costs.canonical_id = lines.canonical_id
 
 ),
 
@@ -63,7 +69,9 @@ aggregated as (
         sum(carb_g)     filter (where contributes_nutrition)        as total_carb_g,
         -- Minimum over CONTRIBUTING lines: a line that contributes nothing cannot make the
         -- recipe's nutrition less trustworthy, because none of it came from that line.
-        min(confidence) filter (where contributes_nutrition)        as min_confidence
+        min(confidence) filter (where contributes_nutrition)        as min_confidence,
+        count(*) filter (where contributes_cost)                    as costed_ingredients,
+        sum(usd)  filter (where contributes_cost)                   as total_usd
     from nutrients
     group by 1
 
@@ -91,6 +99,13 @@ select
     stated_servings.servings,
     case when stated_servings.servings > 0
          then total_kcal / stated_servings.servings end as kcal_per_serving,
+
+    -- Cost is a STAND-IN (see gold.ingredient_costs) and is reported with its own coverage,
+    -- which is lower than nutrition's: an ingredient can be weighed but unpriced.
+    total_usd                                                as cost_total_usd,
+    case when stated_servings.servings > 0
+         then total_usd / stated_servings.servings end       as cost_per_serving_usd,
+    costed_ingredients::double / nullif(ingredient_count, 0) as cost_coverage,
 
     counted_ingredients::double / nullif(ingredient_count, 0) as nutrition_coverage,
     min_confidence,

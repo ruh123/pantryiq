@@ -1,0 +1,99 @@
+fdc_id,usd_per_kg,description,note
+746784,2.20,"Sugars, granulated",pantry staple — 4 lb bag ~$4
+169655,2.20,"Sugars, granulated",duplicate USDA description
+168833,2.60,"Sugars, brown",
+169656,3.30,"Sugars, powdered",
+169761,1.80,"Wheat flour, white, all-purpose, unenriched",5 lb bag ~$4
+168895,2.20,"Wheat flour, white, all-purpose, self-rising",
+172023,6.60,Millet flour,specialty flour — note: a resolution error absorbs volume here
+171287,4.40,"Egg, whole, raw, fresh","~$3/dozen, 600 g per dozen"
+170000,2.20,"Onions, raw",
+168608,13.20,"Beef, grass-fed, ground, raw",grass-fed premium
+174030,11.00,"Beef, ground, 90% lean meat / 10% fat, raw",
+173418,8.80,"Cheese, cream",8 oz block ~$2
+173410,11.00,"Butter, salted",1 lb ~$5
+172346,5.50,"Margarine, regular, 80% fat, composite, stick, with salt",
+173469,2.60,"Vinegar, cider",
+171257,5.50,"Cream, sour, cultured",
+1999634,4.40,"Tomato, roma",
+169225,3.30,"Cucumber, peeled, raw",
+748323,3.50,"Oil, corn",
+171412,13.00,"Oil, coconut",
+170328,12.00,"BURGER KING, Hamburger",priced as the fast-food item it is; a resolution error routes volume here
+169886,11.00,"Chicken, meatless",meat substitute; likewise absorbs a resolution error
+170393,1.80,"Carrots, raw",
+173414,11.00,"Cheese, cheddar (Includes foods for USDA's Food Distribution Program)",
+171250,26.00,"Cheese, roquefort",specialty blue cheese
+168758,6.60,"Toppings, strawberry",
+170427,5.50,"Peppers, sweet, green, raw",
+173944,1.50,"Bananas, raw",
+2346398,3.00,"Pineapple, raw",
+174846,1.80,"Beverages, carbonated, ginger ale",
+170026,2.00,"Potatoes, flesh and skin, raw",
+170182,22.00,"Nuts, pecans",
+170567,18.00,"Nuts, almonds",
+171825,7.70,"Sauce, steak, tomato based",
+167792,2.60,Orange Pineapple Juice Blend,
+2646170,9.00,"Chicken, breast, boneless, skinless, raw",
+171075,7.70,"Chicken, broilers or fryers, breast, meat and skin, raw",
+169988,3.00,"Celery, raw",
+169705,3.00,Oats (Includes foods for USDA's Food Distribution Program),
+169251,7.00,"Mushrooms, white, raw",
+169098,2.50,"Orange juice, raw (Includes foods for USDA's Food Distribution Program)",
+168166,7.00,"Raisins, seeded",
+169726,8.80,"Wild rice, raw",
+168897,4.40,"Wild rice, cooked",
+170458,2.20,"Tomato juice, canned, with salt added",
+746782,1.10,"Milk, whole, 3.25% milkfat, with added vitamin D",~$4/gallon
+170931,44.00,"Spices, pepper, black",spices are bought in small jars; price per kg is high
+171320,33.00,"Spices, cinnamon, ground",
+171326,44.00,"Spices, nutmeg, ground",
+175040,2.20,"Leavening agents, baking soda",
+172803,6.60,"Leavening agents, baking powder, double-acting, sodium aluminum sulfate",
+173468,1.10,"Salt, table",
+171289,26.00,Vanilla extract,
+170845,9.90,"Cheese, mozzarella, whole milk",
+168809,6.60,"Ice creams, chocolate",
+167976,13.20,"Candies, semisweet chocolate",
+169975,1.80,"Cabbage, raw",
+175179,22.00,"Crustaceans, shrimp, raw",
+167952,11.00,"Snacks, granola bars, hard, chocolate chip",
+169078,5.50,"Cheese, cottage, with vegetables",
+170456,4.40,"Tomatoes, green, raw",
+175020,8.80,"Pie, peach",
+172194,3.30,"Milk, canned, evaporated, with added vitamin A",
+169118,4.40,"Pears, raw",
+167680,8.80,"Restaurant, Italian, spaghetti with meat sauce",priced as the prepared dish; absorbs a resolution error
+175185,3.30,"Beans, baked, canned, with pork",
+170899,13.20,"Cheese, cheddar, sharp, sliced",
+169305,3.30,"Sweet potato, canned, mashed",
+2646174,13.20,"Beef, chuck, roast, boneless, choice, raw",
+170859,8.80,"Cream, fluid, heavy whipping",
+170379,4.40,"Broccoli, raw",
+172078,6.60,"BURGER KING, Hash Brown Rounds",absorbs a resolution error
+167747,6.60,"Lemon juice, raw",
+169968,3.30,"Broccoli, frozen, chopped, unprepared",
+174928,5.50,"Bread, crumbs, dry, grated, plain",
+2758990,5.50,Sweetened condensed milk,
+168556,3.30,Catsup,
+172439,13.20,"Bacon, meatless",
+168173,6.60,"Strawberries, frozen, unsweetened (Includes foods for USDA's Food Distribution Program)",
+168448,2.60,"Pumpkin, raw",
+169946,4.40,"Pineapple, frozen, chunks, sweetened",
+172129,15.40,"Beef, round, outside round, bottom round, steak, separable lean and fat, trimmed to 0"" fat, choice, raw",
+1104647,11.00,"Garlic, raw",
+171618,11.00,Blood sausage,absorbs a resolution error
+172272,6.60,"Babyfood, vegetables, green beans, junior",absorbs a resolution error (guide rule 3)
+167995,6.60,"Candies, marshmallows",
+170187,17.60,"Nuts, walnuts, english",
+170959,3.30,"Babyfood, juice, apple",absorbs a resolution error (guide rule 3)
+170851,8.80,"Cheese, ricotta, whole milk",
+170050,4.40,"Tomatoes, red, ripe, cooked",
+169222,6.60,"Yardlong bean, raw",
+167577,5.50,"Sherbet, orange",
+172884,2.20,"Soup, stock, chicken, home-prepared",
+173424,4.40,"Egg, whole, cooked, hard-boiled",
+171146,3.30,"Soup, cream of chicken, canned, condensed",
+169362,2.60,"Corn, sweet, white, canned, cream style, regular pack",
+171116,8.80,"Chicken, ground, raw",
+2758998,2.60,"Pasta, dry, enriched, spaghetti",

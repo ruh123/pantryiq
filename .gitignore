@@ -17,6 +17,7 @@ data/*
 !data/gold_labels/
 !data/gram_reference.csv
 !data/entity_overrides.csv
+!data/cost_reference.csv
 
 # IDE
 .idea/
