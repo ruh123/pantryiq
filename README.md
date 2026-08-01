@@ -99,7 +99,7 @@ before quoting anything from Gold ([§14](docs/er_metrics.md)):
 
 - Measured results, including the negative ones: [`docs/er_metrics.md`](docs/er_metrics.md)
 - Labeling convention: [`docs/labeling_guide.md`](docs/labeling_guide.md)
-- Session log + decisions: [`docs/session_2026-07-24.md`](docs/session_2026-07-24.md)
+- Session logs + decisions: [`docs/session_2026-07-31.md`](docs/session_2026-07-31.md) (Phase 2 review + all of Phase 3) · [`docs/session_2026-07-24.md`](docs/session_2026-07-24.md)
 
 ### Reproducing the entity resolution
 
