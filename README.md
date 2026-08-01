@@ -5,6 +5,7 @@ resolution**: free-text recipe ingredients resolved to canonical USDA food entit
 measured precision/recall — so the AI layer can only speak from verified nutrition, cost, and
 ingredient data, with a deterministic check on every numeric claim it makes.
 
+- **📖 Start here — the project journal, in plain language:** [`docs/PROJECT_JOURNAL.md`](docs/PROJECT_JOURNAL.md)
 - **Operating brief (locked decisions, phase gates):** [`docs/PantryIQ_Master_Prompt.md`](docs/PantryIQ_Master_Prompt.md)
 - **Full design:** [`docs/PantryIQ_Design_Doc.md`](docs/PantryIQ_Design_Doc.md)
 
