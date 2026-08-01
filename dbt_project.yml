@@ -6,6 +6,7 @@ profile: pantryiq
 
 model-paths: ["models"]
 test-paths: ["dbt_tests"]
+seed-paths: ["seeds"]
 target-path: "target"
 clean-targets: ["target", "dbt_packages"]
 
@@ -18,3 +19,16 @@ models:
   pantryiq:
     gold:
       +materialized: table
+
+# The cost table is hand-curated reference data that changes only by human decision — the
+# textbook case for a seed. Types are declared because `note` contains commas, and an
+# auto-detected delimiter once read the whole header as a single column.
+seeds:
+  pantryiq:
+    cost_reference:
+      +schema: silver
+      +column_types:
+        fdc_id: VARCHAR
+        usd_per_kg: DOUBLE
+        description: VARCHAR
+        note: VARCHAR

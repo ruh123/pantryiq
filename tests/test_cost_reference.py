@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-COST_PATH = Path("data/cost_reference.csv")
+COST_PATH = Path("seeds/cost_reference.csv")
 
 
 def _rows():

@@ -173,39 +173,42 @@ def write_silver(portions: pa.Table, db_path: Path | str = DEFAULT_DB) -> Path:
 
 
 def main() -> None:
-    from pantryiq.lakehouse.catalog import get_catalog
+    from pantryiq.lakehouse.writelock import warehouse_lock
 
-    write_silver(build_rows(get_catalog()))
-    con = duckdb.connect(str(DEFAULT_DB), read_only=True)
-    try:
-        total, foods = con.execute(
-            "SELECT count(*), count(DISTINCT fdc_id) FROM silver.usda_portions").fetchone()
-        volumetric = con.execute(
-            "SELECT count(DISTINCT fdc_id) FROM silver.usda_portions "
-            "WHERE measure IN ('cup', 'tablespoon', 'teaspoon')").fetchone()[0]
-        picked = con.execute(
-            """
-            SELECT count(DISTINCT m.fdc_id) FROM silver.ingredient_entity_map m
-            JOIN silver.usda_portions p USING (fdc_id)
-            WHERE NOT m.abstained AND p.measure IN ('cup', 'tablespoon', 'teaspoon')
-            """).fetchone()[0]
-        resolver_entities = con.execute(
-            "SELECT count(DISTINCT fdc_id) FROM silver.ingredient_entity_map "
-            "WHERE NOT abstained").fetchone()[0]
-        by_measure = con.execute(
-            "SELECT measure, count(*) FROM silver.usda_portions "
-            "GROUP BY 1 ORDER BY 2 DESC LIMIT 12").fetchall()
-    finally:
-        con.close()
+    with warehouse_lock():
+        from pantryiq.lakehouse.catalog import get_catalog
 
-    print(f"silver.usda_portions: {total:,} rows over {foods:,} foods")
-    print(f"  with a cup/tbsp/tsp weight : {volumetric:,} foods "
-          f"({100 * volumetric / foods:.1f}% of foods with any portion)")
-    print(f"  of the entities the resolver actually picks: {picked:,} / {resolver_entities:,} "
-          f"({100 * picked / resolver_entities:.1f}%)")
-    print("  most common measures:")
-    for measure, count in by_measure:
-        print(f"    {measure:16} {count:6,}")
+        write_silver(build_rows(get_catalog()))
+        con = duckdb.connect(str(DEFAULT_DB), read_only=True)
+        try:
+            total, foods = con.execute(
+                "SELECT count(*), count(DISTINCT fdc_id) FROM silver.usda_portions").fetchone()
+            volumetric = con.execute(
+                "SELECT count(DISTINCT fdc_id) FROM silver.usda_portions "
+                "WHERE measure IN ('cup', 'tablespoon', 'teaspoon')").fetchone()[0]
+            picked = con.execute(
+                """
+                SELECT count(DISTINCT m.fdc_id) FROM silver.ingredient_entity_map m
+                JOIN silver.usda_portions p USING (fdc_id)
+                WHERE NOT m.abstained AND p.measure IN ('cup', 'tablespoon', 'teaspoon')
+                """).fetchone()[0]
+            resolver_entities = con.execute(
+                "SELECT count(DISTINCT fdc_id) FROM silver.ingredient_entity_map "
+                "WHERE NOT abstained").fetchone()[0]
+            by_measure = con.execute(
+                "SELECT measure, count(*) FROM silver.usda_portions "
+                "GROUP BY 1 ORDER BY 2 DESC LIMIT 12").fetchall()
+        finally:
+            con.close()
+
+        print(f"silver.usda_portions: {total:,} rows over {foods:,} foods")
+        print(f"  with a cup/tbsp/tsp weight : {volumetric:,} foods "
+              f"({100 * volumetric / foods:.1f}% of foods with any portion)")
+        print(f"  of the entities the resolver actually picks: {picked:,} / {resolver_entities:,} "
+              f"({100 * picked / resolver_entities:.1f}%)")
+        print("  most common measures:")
+        for measure, count in by_measure:
+            print(f"    {measure:16} {count:6,}")
 
 
 if __name__ == "__main__":

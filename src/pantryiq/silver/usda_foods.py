@@ -145,21 +145,24 @@ def write_silver(foods: pa.Table, db_path: Path | str = DEFAULT_DB) -> Path:
 
 
 def main() -> None:
-    from pantryiq.lakehouse.catalog import get_catalog
+    from pantryiq.lakehouse.writelock import warehouse_lock
 
-    foods = build_usda_rows(get_catalog())
-    write_silver(foods)
+    with warehouse_lock():
+        from pantryiq.lakehouse.catalog import get_catalog
 
-    total = foods.num_rows
-    kcal = [k for k in foods.column("kcal_per_100g").to_pylist() if k is not None]
-    flagged = sum(foods.column("is_deprioritized").to_pylist())
-    out_of_bounds = [k for k in kcal if k < 0 or k > MAX_KCAL_PER_100G]
-    print(f"silver.usda_foods: {total:,} canonical entities")
-    print(f"  kcal present   : {len(kcal):,} ({100 * len(kcal) / total:.1f}%)")
-    print(f"  kcal range     : {min(kcal):.0f}-{max(kcal):.0f} per 100g "
-          f"(out of bounds: {len(out_of_bounds)})")
-    print(f"  deprioritized  : {flagged:,} ({100 * flagged / total:.1f}%)")
-    print(f"  distinct categories: {len(set(foods.column('category').to_pylist())):,}")
+        foods = build_usda_rows(get_catalog())
+        write_silver(foods)
+
+        total = foods.num_rows
+        kcal = [k for k in foods.column("kcal_per_100g").to_pylist() if k is not None]
+        flagged = sum(foods.column("is_deprioritized").to_pylist())
+        out_of_bounds = [k for k in kcal if k < 0 or k > MAX_KCAL_PER_100G]
+        print(f"silver.usda_foods: {total:,} canonical entities")
+        print(f"  kcal present   : {len(kcal):,} ({100 * len(kcal) / total:.1f}%)")
+        print(f"  kcal range     : {min(kcal):.0f}-{max(kcal):.0f} per 100g "
+              f"(out of bounds: {len(out_of_bounds)})")
+        print(f"  deprioritized  : {flagged:,} ({100 * flagged / total:.1f}%)")
+        print(f"  distinct categories: {len(set(foods.column('category').to_pylist())):,}")
 
 
 if __name__ == "__main__":

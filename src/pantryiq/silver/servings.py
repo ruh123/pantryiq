@@ -117,24 +117,27 @@ def write_silver(rows: pa.Table, db_path: Path | str = DEFAULT_DB) -> Path:
 
 
 def main() -> None:
-    from pantryiq.lakehouse.catalog import get_catalog
+    from pantryiq.lakehouse.writelock import warehouse_lock
 
-    write_silver(build_rows(get_catalog()))
-    con = duckdb.connect(str(DEFAULT_DB), read_only=True)
-    try:
-        total, stated = con.execute(
-            "SELECT count(*), count(servings) FROM silver.recipe_servings").fetchone()
-        spread = con.execute(
-            "SELECT min(servings), median(servings), max(servings) "
-            "FROM silver.recipe_servings WHERE servings IS NOT NULL").fetchone()
-    finally:
-        con.close()
+    with warehouse_lock():
+        from pantryiq.lakehouse.catalog import get_catalog
 
-    print(f"silver.recipe_servings: {total:,} recipes")
-    print(f"  with a stated servings count: {stated:,} ({100 * stated / total:.1f}%)")
-    print(f"  range: {spread[0]:.0f} / median {spread[1]:.0f} / {spread[2]:.0f}")
-    print("  The rest stay NULL. Estimating them from total mass would put an invented")
-    print("  denominator inside every per-serving number the agent quotes.")
+        write_silver(build_rows(get_catalog()))
+        con = duckdb.connect(str(DEFAULT_DB), read_only=True)
+        try:
+            total, stated = con.execute(
+                "SELECT count(*), count(servings) FROM silver.recipe_servings").fetchone()
+            spread = con.execute(
+                "SELECT min(servings), median(servings), max(servings) "
+                "FROM silver.recipe_servings WHERE servings IS NOT NULL").fetchone()
+        finally:
+            con.close()
+
+        print(f"silver.recipe_servings: {total:,} recipes")
+        print(f"  with a stated servings count: {stated:,} ({100 * stated / total:.1f}%)")
+        print(f"  range: {spread[0]:.0f} / median {spread[1]:.0f} / {spread[2]:.0f}")
+        print("  The rest stay NULL. Estimating them from total mass would put an invented")
+        print("  denominator inside every per-serving number the agent quotes.")
 
 
 if __name__ == "__main__":

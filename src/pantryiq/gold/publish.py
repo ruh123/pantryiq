@@ -152,10 +152,16 @@ def export(db_path: Path | str = DEFAULT_DB, out_path: Path | str = EXPORT_PATH)
 
 
 def main() -> None:
+    from pantryiq.lakehouse.writelock import warehouse_lock
+
     print("building into staging (gated) ...")
-    build_staging()
-    counts = publish()
-    path = export()
+    # Held across the whole gate-and-swap, not just the swap: dbt is a writer too, and a
+    # concurrent Silver step between the build and the publish would produce exactly the
+    # mixed-vintage Gold this module exists to prevent.
+    with warehouse_lock():
+        build_staging()
+        counts = publish()
+        path = export()
 
     print("PUBLISHED — all five tables swapped in one transaction")
     for name, count in counts.items():

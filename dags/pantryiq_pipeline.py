@@ -5,8 +5,10 @@ documented interface rather than a second, parallel implementation that could dr
 
 **The DAG is strictly sequential, and that is a correctness requirement, not a style choice.**
 Silver and Gold share one DuckDB file, and DuckDB takes an exclusive write lock — two tasks
-writing at once do not interleave, they fail. `max_active_tasks = 1` states that in the one
-place someone would look before adding parallelism.
+writing at once do not interleave, they fail. Three things enforce it, because each covers a
+gap the others cannot: `max_active_tasks = 1` (inside a DAG), the shared `duckdb_writer` **pool**
+(across both DAGs), and an `flock` inside every writing `main()` (against a human running a
+module in a terminal while the pipeline is mid-run).
 
 **Idempotent by construction.** Every step does `CREATE OR REPLACE` or an Iceberg `overwrite`,
 so a re-run from any point converges to the same tables. Nothing appends. The one guard worth
@@ -32,7 +34,15 @@ from pathlib import Path
 import pendulum
 from airflow.sdk import dag, task
 
+# ONE pool shared by both DAGs. `max_active_tasks` bounds concurrency inside a DAG and
+# `max_active_runs` bounds runs of the same DAG — neither can stop `pantryiq_ingest` and
+# `pantryiq_pipeline` running together, and DuckDB's exclusive write lock makes that a failure
+# rather than a slowdown. Create it once:
+#   uv run airflow pools set duckdb_writer 1 "serialises every warehouse writer"
+WRITER_POOL = "duckdb_writer"
+
 DEFAULT_ARGS = {
+    "pool": WRITER_POOL,
     # Retries are for transient failures (a locked DB, a flaky FS), not for logic errors —
     # a failing quality gate re-runs to the same failure, which is the point of a gate.
     "retries": 2,
@@ -151,6 +161,17 @@ def pantryiq_pipeline():
         publish()
         export()
 
+    @task
+    def check_distributions():
+        """Advisory distribution checks over published Gold — reports, does not gate.
+
+        Runs AFTER publish on purpose: it describes what was actually shipped. Blocking here
+        would refuse a build for having moved, and movement is a finding to read.
+        """
+        from pantryiq.gold.expectations import main
+
+        main()
+
     # Silver fan-in, then resolution, then Gold. Written as one chain because the DuckDB write
     # lock makes concurrency a failure mode rather than a speed-up.
     (
@@ -166,6 +187,7 @@ def pantryiq_pipeline():
         >> report_gram_accuracy()
         >> build_gold_gated()
         >> publish_gold()
+        >> check_distributions()
     )
 
 

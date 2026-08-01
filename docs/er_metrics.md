@@ -1035,11 +1035,18 @@ The probe row is deleted in a `finally` and Gold is rebuilt at the end, so an in
 cannot leave poisoned data behind. Same reasoning as §13's mutation sweep: a gate nobody has
 watched fail is not evidence of a gate.
 
-**Great Expectations is declared but not configured.** §4 locks "dbt tests + Great Expectations";
-the `quality` dependency group exists and is deliberately outside CI, but no expectation suite
-has been written. The dbt tests cover the checks the brief actually enumerates (nutrient bounds,
-referential integrity, confidence thresholds). GE's distinct value would be distribution drift,
-which nothing here needs yet — stated as an open deviation rather than quietly dropped.
+**Distribution expectations (§4's second quality tool) — advisory, not a gate.** The dbt gate
+asks "is any value impossible?" and blocks. `pantryiq.gold.expectations` asks a different
+question — "has the shape moved?" — which bounds-checking cannot see, and reports rather than
+refuses. Nine checks over published Gold: mean kcal/100g, median and **p99** total grams, mean
+coverage, mean trust score, tagged share, conversion share, and hours since publish.
+
+**Choosing the statistic mattered more than choosing the range, and I got it wrong first.** I
+asserted these would have caught the pack-size bug, then checked. The **median does not move at
+all** — 652.0 g before and after, because 218 of 15,000 recipes cannot shift a median. The tail
+does: p99 goes 4,172 → 12,517 g, a clean 3.00×, which fires against the 7,000 bound. A suite of
+means and medians would have passed straight through a 3× conversion error. The tail statistic is
+in the list because it was measured to work, and the docstring records the false start.
 
 ### Orchestration (3.7)
 

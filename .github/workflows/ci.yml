@@ -20,3 +20,24 @@ jobs:
         run: uv run ruff check .
       - name: Test
         run: uv run pytest -q
+      # dbt-core and dbt-duckdb are default deps, so this needs no extra install and no
+      # database: it catches a broken ref(), a renamed source, malformed _schema.yml, or a
+      # Jinja error in the custom test macros — all of which previously shipped green because
+      # CI never invoked dbt at all.
+      - name: Validate dbt project
+        run: uv run dbt parse --profiles-dir .
+
+  dag-import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+      # Airflow is isolated from the default groups on purpose (its pins would break
+      # `uv sync --locked` for everyone else), which meant the five DAG tests skipped in CI and
+      # the whole orchestration contract was untested. This job installs it deliberately.
+      - name: Sync with orchestration
+        run: uv sync --locked --group orchestration
+      - name: DAG contract
+        run: uv run pytest tests/test_dag.py -q

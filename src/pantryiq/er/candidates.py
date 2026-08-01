@@ -229,17 +229,20 @@ def write_candidates(candidates: pa.Table, db_path: Path | str = DEFAULT_DB) -> 
 
 
 def main() -> None:
-    candidates = build_candidates()
-    write_candidates(candidates)
-    strings = candidates.column("normalized_text").to_pylist()
-    distinct = len(set(strings))
-    print(f"silver.ingredient_candidates: {candidates.num_rows:,} rows "
-          f"for {distinct:,} strings ({candidates.num_rows / distinct:.1f} candidates each)")
-    for column in ("from_embed_search", "from_embed_desc", "from_token_head"):
-        count = sum(candidates.column(column).to_pylist())
-        print(f"  contributed by {column[5:]:13}: {count:7,} "
-              f"({100 * count / candidates.num_rows:.1f}% of rows; generators overlap)")
-    print("\nrecall@k needs labels — see scripts/er_metrics or docs/er_metrics.md.")
+    from pantryiq.lakehouse.writelock import warehouse_lock
+
+    with warehouse_lock():
+        candidates = build_candidates()
+        write_candidates(candidates)
+        strings = candidates.column("normalized_text").to_pylist()
+        distinct = len(set(strings))
+        print(f"silver.ingredient_candidates: {candidates.num_rows:,} rows "
+              f"for {distinct:,} strings ({candidates.num_rows / distinct:.1f} candidates each)")
+        for column in ("from_embed_search", "from_embed_desc", "from_token_head"):
+            count = sum(candidates.column(column).to_pylist())
+            print(f"  contributed by {column[5:]:13}: {count:7,} "
+                  f"({100 * count / candidates.num_rows:.1f}% of rows; generators overlap)")
+        print("\nrecall@k needs labels — see scripts/er_metrics or docs/er_metrics.md.")
 
 
 if __name__ == "__main__":

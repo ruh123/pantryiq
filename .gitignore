@@ -17,7 +17,6 @@ data/*
 !data/gold_labels/
 !data/gram_reference.csv
 !data/entity_overrides.csv
-!data/cost_reference.csv
 
 # IDE
 .idea/
@@ -47,3 +46,4 @@ simple_auth_manager_passwords.json.generated
 gx/uncommitted/
 great_expectations/uncommitted/
 data/pantryiq_gold.duckdb
+data/.warehouse.lock

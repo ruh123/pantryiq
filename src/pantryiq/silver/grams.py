@@ -254,54 +254,57 @@ def write_silver(rows: pa.Table, db_path: Path | str = DEFAULT_DB) -> Path:
 
 
 def main() -> None:
-    write_silver(build_rows())
-    con = duckdb.connect(str(DEFAULT_DB), read_only=True)
-    try:
-        total, converted = con.execute(
-            "SELECT count(*), sum(converted::int) FROM silver.recipe_ingredient_grams").fetchone()
-        by_method = con.execute(
-            "SELECT coalesce(method, '(none)'), count(*) FROM silver.recipe_ingredient_grams "
-            "GROUP BY 1 ORDER BY 2 DESC").fetchall()
-        by_class = con.execute(
-            """
-            SELECT CASE
-                     WHEN l.quantity IS NULL THEN 'no quantity'
-                     WHEN l.unit IS NULL THEN 'count (no unit)'
-                     WHEN l.unit IN ('gram','kilogram','ounce','pound') THEN 'mass'
-                     WHEN l.unit IN ('cup','teaspoon','tablespoon','quart','pint','gallon')
-                       THEN 'volumetric'
-                     ELSE 'package/other' END AS unit_class,
-                   count(*), sum(g.converted::int)
-            FROM silver.recipe_ingredient_lines l
-            JOIN silver.recipe_ingredient_grams g
-              ON g.recipe_id = l.recipe_id AND g.line_index = l.line_index
-            GROUP BY 1 ORDER BY 2 DESC
-            """
-        ).fetchall()
-        recipes = con.execute(
-            """
-            SELECT median(share) FROM (
-              SELECT sum(converted::int)::double / count(*) AS share
-              FROM silver.recipe_ingredient_grams GROUP BY recipe_id)
-            """
-        ).fetchone()[0]
-    finally:
-        con.close()
+    from pantryiq.lakehouse.writelock import warehouse_lock
 
-    print("=" * 78)
-    print("3.3 — silver.recipe_ingredient_grams")
-    print("=" * 78)
-    print(f"  {converted:,} of {total:,} ingredient lines converted to grams "
-          f"({100 * converted / total:.1f}%)")
-    print(f"  median share of a recipe's lines converted: {recipes:.1%}")
-    print("\n  by path")
-    for method, count in by_method:
-        print(f"    {method:20} {count:7,}  ({100 * count / total:5.1f}%)")
-    print("\n  by unit class")
-    for unit_class, count, hit in by_class:
-        print(f"    {unit_class:20} {hit:7,} / {count:7,}  ({100 * hit / count:5.1f}%)")
-    print("\n  Uncovered lines are NULL, not 0 — a null is a measured gap; a zero would claim")
-    print("  the ingredient weighs nothing and silently drag the recipe's totals down.")
+    with warehouse_lock():
+        write_silver(build_rows())
+        con = duckdb.connect(str(DEFAULT_DB), read_only=True)
+        try:
+            total, converted = con.execute(
+                "SELECT count(*), sum(converted::int) FROM silver.recipe_ingredient_grams").fetchone()
+            by_method = con.execute(
+                "SELECT coalesce(method, '(none)'), count(*) FROM silver.recipe_ingredient_grams "
+                "GROUP BY 1 ORDER BY 2 DESC").fetchall()
+            by_class = con.execute(
+                """
+                SELECT CASE
+                         WHEN l.quantity IS NULL THEN 'no quantity'
+                         WHEN l.unit IS NULL THEN 'count (no unit)'
+                         WHEN l.unit IN ('gram','kilogram','ounce','pound') THEN 'mass'
+                         WHEN l.unit IN ('cup','teaspoon','tablespoon','quart','pint','gallon')
+                           THEN 'volumetric'
+                         ELSE 'package/other' END AS unit_class,
+                       count(*), sum(g.converted::int)
+                FROM silver.recipe_ingredient_lines l
+                JOIN silver.recipe_ingredient_grams g
+                  ON g.recipe_id = l.recipe_id AND g.line_index = l.line_index
+                GROUP BY 1 ORDER BY 2 DESC
+                """
+            ).fetchall()
+            recipes = con.execute(
+                """
+                SELECT median(share) FROM (
+                  SELECT sum(converted::int)::double / count(*) AS share
+                  FROM silver.recipe_ingredient_grams GROUP BY recipe_id)
+                """
+            ).fetchone()[0]
+        finally:
+            con.close()
+
+        print("=" * 78)
+        print("3.3 — silver.recipe_ingredient_grams")
+        print("=" * 78)
+        print(f"  {converted:,} of {total:,} ingredient lines converted to grams "
+              f"({100 * converted / total:.1f}%)")
+        print(f"  median share of a recipe's lines converted: {recipes:.1%}")
+        print("\n  by path")
+        for method, count in by_method:
+            print(f"    {method:20} {count:7,}  ({100 * count / total:5.1f}%)")
+        print("\n  by unit class")
+        for unit_class, count, hit in by_class:
+            print(f"    {unit_class:20} {hit:7,} / {count:7,}  ({100 * hit / count:5.1f}%)")
+        print("\n  Uncovered lines are NULL, not 0 — a null is a measured gap; a zero would claim")
+        print("  the ingredient weighs nothing and silently drag the recipe's totals down.")
 
 
 if __name__ == "__main__":

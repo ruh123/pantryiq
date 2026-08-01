@@ -188,107 +188,110 @@ def scored_sample(db_path: Path | str = DEFAULT_DB, gold_dir: Path | str = DEFAU
 
 
 def main(db_path: Path | str = DEFAULT_DB, gold_dir: Path | str = DEFAULT_OUT) -> None:
-    table = build(db_path)
-    write(table, db_path)
-    occurrences = table.column("occurrence_count").to_pylist()
-    kcal = table.column("kcal_per_100g").to_pylist()
-    flagged = table.column("flagged").to_pylist()
-    total_occurrences = sum(occurrences)
+    from pantryiq.lakehouse.writelock import warehouse_lock
 
-    print("=" * 78)
-    print("2.7 — silver.ingredient_entity_map")
-    print("=" * 78)
-    print(f"  {table.num_rows:,} distinct ingredient strings resolved, covering "
-          f"{total_occurrences:,} ingredient-line occurrences")
-    with_kcal = sum(1 for value in kcal if value is not None)
-    kcal_occurrences = sum(o for o, value in zip(occurrences, kcal) if value is not None)
-    print(f"  with an energy value: {with_kcal:,} strings ({100 * with_kcal / table.num_rows:.1f}%)"
-          f"  |  {kcal_occurrences:,} occurrences "
-          f"({100 * kcal_occurrences / total_occurrences:.1f}%)")
-    flagged_count = sum(flagged)
-    flagged_occurrences = sum(o for o, value in zip(occurrences, flagged) if value)
-    print(f"  flagged low-confidence:  {flagged_count:,} strings "
-          f"({100 * flagged_count / table.num_rows:.1f}%)"
-          f"  |  {flagged_occurrences:,} occurrences "
-          f"({100 * flagged_occurrences / total_occurrences:.1f}%)")
-    print(f"  -> flagged strings are {100 * flagged_count / table.num_rows:.1f}% of the "
-          f"vocabulary but only {100 * flagged_occurrences / total_occurrences:.1f}% of what a "
-          "user hits:\n     the hard strings are mostly rare ones.")
+    with warehouse_lock():
+        table = build(db_path)
+        write(table, db_path)
+        occurrences = table.column("occurrence_count").to_pylist()
+        kcal = table.column("kcal_per_100g").to_pylist()
+        flagged = table.column("flagged").to_pylist()
+        total_occurrences = sum(occurrences)
 
-    abstained = table.column("abstained").to_pylist()
-    abstain_count = sum(abstained)
-    abstain_occurrences = sum(o for o, value in zip(occurrences, abstained) if value)
-    print(f"  ABSTAINED (no confident USDA entity): {abstain_count:,} strings "
-          f"({100 * abstain_count / table.num_rows:.1f}%)"
-          f"  |  {abstain_occurrences:,} occurrences "
-          f"({100 * abstain_occurrences / total_occurrences:.1f}%)")
-    print(f"  -> the resolver declines on {100 * abstain_count / table.num_rows:.1f}% of the "
-          f"vocabulary but only {100 * abstain_occurrences / total_occurrences:.1f}% of what a "
-          "user hits.\n     Declining is the point: a wrong match silently produces wrong "
-          "nutrition (guide rule 4).")
-
-    totals = corpus_totals(db_path)
-    print("\n  corpus strata")
-    for stratum in STRATA:
-        distinct, occurrence_total = totals[stratum]
-        print(f"    {stratum:5} {distinct:6,} distinct strings "
-              f"({100 * distinct / sum(t[0] for t in totals.values()):5.1f}%)   "
-              f"{occurrence_total:8,} occurrences "
-              f"({100 * occurrence_total / sum(t[1] for t in totals.values()):5.1f}%)")
-
-    # --- the headline ------------------------------------------------------------------
-    sample = scored_sample(db_path, gold_dir)
-    print("\n" + "=" * 78)
-    print("HEADLINE — stratified estimate over the corpus")
-    print("=" * 78)
-    print(f"  from {len(sample)} gold-labeled resolvable strings the resolver did NOT decline,")
-    print("  reweighted by true stratum size.")
-    print(f"  COVERAGE: the resolver declines on {100 * abstain_count / table.num_rows:.1f}% of "
-          f"strings / {100 * abstain_occurrences / total_occurrences:.1f}% of occurrences.")
-    print("  Accuracy below is conditional on not declining — read the two together, never one")
-    print("  alone. Abstaining necessarily raises accuracy and lowers coverage.")
-    for label, key in (("nutritionally equivalent (<10% kcal)", "equivalent"),
-                       ("entity top-1", "entity")):
-        by_stratum = {stratum: [(row["weight"], bool(row[key])) for row in sample
-                                if row["stratum"] == stratum and row[key] is not None]
-                      for stratum in STRATA}
-        per_string = stratified_ci(by_stratum, totals, weighted=False)
-        per_occurrence = stratified_ci(by_stratum, totals, weighted=True)
-        print(f"\n  {label}")
-        print(f"    per unique string : {per_string[0]:6.1%}  "
-              f"[{per_string[1]:.1%}, {per_string[2]:.1%}]")
-        print(f"    per occurrence    : {per_occurrence[0]:6.1%}  "
-              f"[{per_occurrence[1]:.1%}, {per_occurrence[2]:.1%}]   <- what a user experiences")
-        for stratum in STRATA:
-            rows = by_stratum[stratum]
-            if rows:
-                print(f"      {stratum:5} n={len(rows):3}  "
-                      f"{sum(1 for _, hit in rows if hit) / len(rows):6.1%}")
-
-    print("\n  Both figures inherit the gold labels' quality: Krippendorff's alpha = 0.709 (§9).")
-    print("  They are estimates of agreement with those labels, not with ground truth.")
-
-    # --- the null-class limitation ------------------------------------------------------
-    labels = load_labels(Path(gold_dir) / "labels.jsonl")
-    flag_of = dict(zip(table.column("normalized_text").to_pylist(), flagged))
-    null_strings = [text for text, record in labels.items()
-                    if record["fdc_id"] == NO_MATCH and text in flag_of]
-    real_strings = [text for text, record in labels.items()
-                    if record["fdc_id"] != NO_MATCH and text in flag_of]
-    if null_strings and real_strings:
-        print("\n" + "=" * 78)
-        print("THE CONFIDENCE FLAG AS A NULL DETECTOR — superseded by §12's threshold")
         print("=" * 78)
-        print("  The flag separates the null class even though it was never fitted to:")
-        print(f"    gold no-match  ({len(null_strings):3} strings): "
-              f"{100 * sum(flag_of[t] for t in null_strings) / len(null_strings):5.1f}% flagged")
-        print(f"    gold resolvable({len(real_strings):3} strings): "
-              f"{100 * sum(flag_of[t] for t in real_strings) / len(real_strings):5.1f}% flagged")
-        print(f"  But a flag threshold of {LOW_CONFIDENCE} was fitted for nutrition error, and §12"
-              " showed raw")
-        print("  cosine is the better null signal, so abstention uses that instead. The two are")
-        print("  separate answers: `flagged` = this pick may have the wrong facet; `abstained` =")
-        print("  this string probably has no USDA entity at all.")
+        print("2.7 — silver.ingredient_entity_map")
+        print("=" * 78)
+        print(f"  {table.num_rows:,} distinct ingredient strings resolved, covering "
+              f"{total_occurrences:,} ingredient-line occurrences")
+        with_kcal = sum(1 for value in kcal if value is not None)
+        kcal_occurrences = sum(o for o, value in zip(occurrences, kcal) if value is not None)
+        print(f"  with an energy value: {with_kcal:,} strings ({100 * with_kcal / table.num_rows:.1f}%)"
+              f"  |  {kcal_occurrences:,} occurrences "
+              f"({100 * kcal_occurrences / total_occurrences:.1f}%)")
+        flagged_count = sum(flagged)
+        flagged_occurrences = sum(o for o, value in zip(occurrences, flagged) if value)
+        print(f"  flagged low-confidence:  {flagged_count:,} strings "
+              f"({100 * flagged_count / table.num_rows:.1f}%)"
+              f"  |  {flagged_occurrences:,} occurrences "
+              f"({100 * flagged_occurrences / total_occurrences:.1f}%)")
+        print(f"  -> flagged strings are {100 * flagged_count / table.num_rows:.1f}% of the "
+              f"vocabulary but only {100 * flagged_occurrences / total_occurrences:.1f}% of what a "
+              "user hits:\n     the hard strings are mostly rare ones.")
+
+        abstained = table.column("abstained").to_pylist()
+        abstain_count = sum(abstained)
+        abstain_occurrences = sum(o for o, value in zip(occurrences, abstained) if value)
+        print(f"  ABSTAINED (no confident USDA entity): {abstain_count:,} strings "
+              f"({100 * abstain_count / table.num_rows:.1f}%)"
+              f"  |  {abstain_occurrences:,} occurrences "
+              f"({100 * abstain_occurrences / total_occurrences:.1f}%)")
+        print(f"  -> the resolver declines on {100 * abstain_count / table.num_rows:.1f}% of the "
+              f"vocabulary but only {100 * abstain_occurrences / total_occurrences:.1f}% of what a "
+              "user hits.\n     Declining is the point: a wrong match silently produces wrong "
+              "nutrition (guide rule 4).")
+
+        totals = corpus_totals(db_path)
+        print("\n  corpus strata")
+        for stratum in STRATA:
+            distinct, occurrence_total = totals[stratum]
+            print(f"    {stratum:5} {distinct:6,} distinct strings "
+                  f"({100 * distinct / sum(t[0] for t in totals.values()):5.1f}%)   "
+                  f"{occurrence_total:8,} occurrences "
+                  f"({100 * occurrence_total / sum(t[1] for t in totals.values()):5.1f}%)")
+
+        # --- the headline ------------------------------------------------------------------
+        sample = scored_sample(db_path, gold_dir)
+        print("\n" + "=" * 78)
+        print("HEADLINE — stratified estimate over the corpus")
+        print("=" * 78)
+        print(f"  from {len(sample)} gold-labeled resolvable strings the resolver did NOT decline,")
+        print("  reweighted by true stratum size.")
+        print(f"  COVERAGE: the resolver declines on {100 * abstain_count / table.num_rows:.1f}% of "
+              f"strings / {100 * abstain_occurrences / total_occurrences:.1f}% of occurrences.")
+        print("  Accuracy below is conditional on not declining — read the two together, never one")
+        print("  alone. Abstaining necessarily raises accuracy and lowers coverage.")
+        for label, key in (("nutritionally equivalent (<10% kcal)", "equivalent"),
+                           ("entity top-1", "entity")):
+            by_stratum = {stratum: [(row["weight"], bool(row[key])) for row in sample
+                                    if row["stratum"] == stratum and row[key] is not None]
+                          for stratum in STRATA}
+            per_string = stratified_ci(by_stratum, totals, weighted=False)
+            per_occurrence = stratified_ci(by_stratum, totals, weighted=True)
+            print(f"\n  {label}")
+            print(f"    per unique string : {per_string[0]:6.1%}  "
+                  f"[{per_string[1]:.1%}, {per_string[2]:.1%}]")
+            print(f"    per occurrence    : {per_occurrence[0]:6.1%}  "
+                  f"[{per_occurrence[1]:.1%}, {per_occurrence[2]:.1%}]   <- what a user experiences")
+            for stratum in STRATA:
+                rows = by_stratum[stratum]
+                if rows:
+                    print(f"      {stratum:5} n={len(rows):3}  "
+                          f"{sum(1 for _, hit in rows if hit) / len(rows):6.1%}")
+
+        print("\n  Both figures inherit the gold labels' quality: Krippendorff's alpha = 0.709 (§9).")
+        print("  They are estimates of agreement with those labels, not with ground truth.")
+
+        # --- the null-class limitation ------------------------------------------------------
+        labels = load_labels(Path(gold_dir) / "labels.jsonl")
+        flag_of = dict(zip(table.column("normalized_text").to_pylist(), flagged))
+        null_strings = [text for text, record in labels.items()
+                        if record["fdc_id"] == NO_MATCH and text in flag_of]
+        real_strings = [text for text, record in labels.items()
+                        if record["fdc_id"] != NO_MATCH and text in flag_of]
+        if null_strings and real_strings:
+            print("\n" + "=" * 78)
+            print("THE CONFIDENCE FLAG AS A NULL DETECTOR — superseded by §12's threshold")
+            print("=" * 78)
+            print("  The flag separates the null class even though it was never fitted to:")
+            print(f"    gold no-match  ({len(null_strings):3} strings): "
+                  f"{100 * sum(flag_of[t] for t in null_strings) / len(null_strings):5.1f}% flagged")
+            print(f"    gold resolvable({len(real_strings):3} strings): "
+                  f"{100 * sum(flag_of[t] for t in real_strings) / len(real_strings):5.1f}% flagged")
+            print(f"  But a flag threshold of {LOW_CONFIDENCE} was fitted for nutrition error, and §12"
+                  " showed raw")
+            print("  cosine is the better null signal, so abstention uses that instead. The two are")
+            print("  separate answers: `flagged` = this pick may have the wrong facet; `abstained` =")
+            print("  this string probably has no USDA entity at all.")
 
 
 if __name__ == "__main__":

@@ -336,22 +336,25 @@ def write_silver(lines: pa.Table, db_path: Path | str = DEFAULT_DB) -> Path:
 
 
 def main() -> None:
-    from pantryiq.lakehouse.catalog import get_catalog
+    from pantryiq.lakehouse.writelock import warehouse_lock
 
-    lines = build_line_rows(get_catalog())
-    write_silver(lines)
+    with warehouse_lock():
+        from pantryiq.lakehouse.catalog import get_catalog
 
-    total = lines.num_rows
-    with_qty = sum(q is not None for q in lines.column("quantity").to_pylist())
-    with_unit = sum(u is not None for u in lines.column("unit").to_pylist())
-    normals = lines.column("normalized_text").to_pylist()
-    non_empty = sum(bool(n) for n in normals)
-    print(f"silver.recipe_ingredient_lines: {total:,} lines")
-    print(f"  with quantity : {with_qty:,} ({100 * with_qty / total:.1f}%)")
-    print(f"  with unit     : {with_unit:,} ({100 * with_unit / total:.1f}%)")
-    print(f"  non-empty text: {non_empty:,} ({100 * non_empty / total:.1f}%)")
-    # The table excludes the empty string, so the reported count must too.
-    print(f"silver.distinct_ingredient_strings: {len({n for n in normals if n}):,} distinct")
+        lines = build_line_rows(get_catalog())
+        write_silver(lines)
+
+        total = lines.num_rows
+        with_qty = sum(q is not None for q in lines.column("quantity").to_pylist())
+        with_unit = sum(u is not None for u in lines.column("unit").to_pylist())
+        normals = lines.column("normalized_text").to_pylist()
+        non_empty = sum(bool(n) for n in normals)
+        print(f"silver.recipe_ingredient_lines: {total:,} lines")
+        print(f"  with quantity : {with_qty:,} ({100 * with_qty / total:.1f}%)")
+        print(f"  with unit     : {with_unit:,} ({100 * with_unit / total:.1f}%)")
+        print(f"  non-empty text: {non_empty:,} ({100 * non_empty / total:.1f}%)")
+        # The table excludes the empty string, so the reported count must too.
+        print(f"silver.distinct_ingredient_strings: {len({n for n in normals if n}):,} distinct")
 
 
 if __name__ == "__main__":
