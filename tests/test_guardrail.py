@@ -8,6 +8,7 @@ import pytest
 
 from pantryiq.agent.context import AnswerContext, RecipeFact
 from pantryiq.agent.guardrail import (
+    mentions,
     guarded_answer,
     check,
     extract_numbers,
@@ -84,8 +85,16 @@ def test_a_bare_integer_passes_only_where_it_is_actually_a_list_marker():
 
 def test_a_count_gets_no_tolerance_at_any_magnitude():
     """Counts and measurements are split by KIND, not by size. The old rule keyed off magnitude
-    (`EXACT_BELOW = 20`) and so treated every small measurement as a count."""
+    (`EXACT_BELOW = 20`) and so treated every small measurement as a count.
+
+    The name says "at any magnitude" and an earlier version only asserted 5 vs 6 — where 1% of 5
+    is 0.05, so applying the band to the exact set changed nothing and the mutation survived.
+    The property only bites above 100, so that is where it is now asserted.
+    """
     assert not permitted(6.0, exact={5.0}, measured=set()), "6 of 5 ingredients"
+    # 1005 is inside a 1% band around 1000. As a COUNT it must still be refused.
+    assert not permitted(1005.0, exact={1000.0}, measured=set()), "a count, near but not equal"
+    assert permitted(1005.0, exact=set(), measured={1000.0}), "the same gap, as a measurement"
     assert permitted(13.0, exact=set(), measured={13.1}), "about 13 g of protein"
 
 
@@ -99,7 +108,11 @@ def test_a_rounded_small_measurement_is_not_rejected():
 
 
 def test_permitted_rejects_a_value_near_nothing_in_the_scope():
+    """The rejected value sits just OUTSIDE the band, not far from it. 9,999 against 3,470 stays
+    rejected with the tolerance set anywhere up to ~187%, so it pinned nothing."""
     assert permitted(3470.0, exact=set(), measured={3470.0})
+    assert permitted(3500.0, exact=set(), measured={3470.0}), "inside 1%"
+    assert not permitted(3506.0, exact=set(), measured={3470.0}), "just outside 1%"
     assert not permitted(9999.0, exact={3470.0}, measured=set())
 
 
@@ -218,24 +231,60 @@ def test_a_sentence_naming_two_recipes_puts_both_in_scope():
 def test_a_title_that_contains_another_title_does_not_split_it():
     """`Potato Casserole` is a substring of `Hash Brown Potato Casserole`. Resolving overlaps by
     position alone cut one recipe's section in two and checked its calories against the other
-    recipe's values — a false positive on a correct answer."""
-    context = context_of(
-        make_candidate(recipe_id="r1", title="Hash Brown Potato Casserole", total_kcal=4459),
-        make_candidate(recipe_id="r2", title="Potato Casserole", total_kcal=6982))
+    recipe's values — a false positive on a correct answer.
 
-    assert check("Hash Brown Potato Casserole is about 4,459 kcal.", context).passed
+    Asserted on `mentions()` directly, because the end-to-end version could not see the bug it
+    names: a spurious extra mention only WIDENS a sentence's scope, and a passing assertion can
+    never detect a scope that is too wide. It survived three separate mutations to the overlap
+    resolution it exists to protect.
+    """
+    context = context_of(
+        make_candidate(recipe_id="rcp-hash", title="Hash Brown Potato Casserole", total_kcal=4459),
+        make_candidate(recipe_id="rcp-plain", title="Potato Casserole", total_kcal=6982))
+    text = "Hash Brown Potato Casserole is about 4,459 kcal."
+
+    found = mentions(text, context)
+
+    assert [recipe.title for _, recipe in found] == ["Hash Brown Potato Casserole"], \
+        "the longer title must claim the span outright"
+    assert check(text, context).passed
+    # And the negative: the inner recipe's figure may not be attached to the outer one.
+    assert not check("Hash Brown Potato Casserole is about 6,982 kcal.", context).passed
 
 
 def test_a_title_with_a_nested_parenthetical_still_matches():
     """The corpus writes `Honey Oatmeal Drop Cookies(Makes 22 (2-Inch) Cookies)`. Stripping a
     trailing `\\(...\\)` cannot handle the nesting, and when the title failed to match, that
-    recipe's whole section was attributed to the recipe named before it."""
-    context = context_of(
-        make_candidate(recipe_id="r1", title="Baked Oatmeal", total_kcal=1364),
-        make_candidate(recipe_id="r2", total_kcal=2004,
-                       title="Honey Oatmeal Drop Cookies(Makes 22 (2-Inch) Cookies)"))
+    recipe's whole section was attributed to the recipe named before it.
 
-    assert check("Honey Oatmeal Drop Cookies is about 2,004 kcal.", context).passed
+    The earlier version was rescued twice over and so pinned nothing: with no mention found,
+    `check` falls back to the whole-context union which still contained the value, and the value
+    also sat inside 1% of the fixture's default `total_grams`. This names a PRIOR recipe — the
+    failure the docstring actually describes — and asserts the mention is found.
+    """
+    context = context_of(
+        make_candidate(recipe_id="rcp-baked", title="Baked Oatmeal", total_kcal=1364,
+                       total_grams=900, kcal_per_100g=151),
+        make_candidate(recipe_id="rcp-drops", total_kcal=2004, total_grams=700,
+                       kcal_per_100g=286,
+                       title="Honey Oatmeal Drop Cookies(Makes 22 (2-Inch) Cookies)"))
+    text = ("Baked Oatmeal is about 1,364 kcal. "
+            "Honey Oatmeal Drop Cookies is about 2,004 kcal.")
+
+    assert [r.title for _, r in mentions(text, context)][1].startswith("Honey Oatmeal")
+    assert check(text, context).passed
+
+
+def test_a_recipe_can_be_matched_by_its_id_as_well_as_its_title():
+    """`_needles` offers the recipe_id as a spelling, and both mutations to that branch survived
+    — because every fixture id in the suite was two characters, below its own `len >= 3` floor,
+    leaving id matching inert everywhere."""
+    context = context_of(
+        make_candidate(recipe_id="recipenlg:11613", title=None, total_kcal=3470),
+        make_candidate(recipe_id="recipenlg:1031", title=None, total_kcal=1968))
+
+    assert not check("recipenlg:11613 is about 1,968 kcal.", context).passed
+    assert check("recipenlg:11613 is about 3,470 kcal.", context).passed
 
 
 def test_digits_inside_a_recipe_title_are_not_read_as_a_claim():

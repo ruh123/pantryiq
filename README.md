@@ -134,6 +134,12 @@ before quoting anything from Gold ([§14](docs/er_metrics.md)):
   being published. Proven against a real captured dbt failure (1 failing row, 17 downstream
   models skipped), not a hand-written one.
 
+- **The test suite is mutation-swept, and the sweeps keep finding that the tests were the
+  problem.** Three sweeps so far; two had harness bugs that made them report success
+  unconditionally, both caught by insisting on a passing control. Eight tests have been found
+  that named a property they could not actually fail on. 582 tests, 565 of which run without the
+  corpus.
+
 **Still to build** — Phase 5: the web app and deployment.
 
 (`foodPortions.gramWeight` is absent from the abridged `/foods/list` payload in Bronze, but

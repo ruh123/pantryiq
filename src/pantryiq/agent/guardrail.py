@@ -178,27 +178,6 @@ def mentions(response: str, context: AnswerContext) -> list[tuple[int, RecipeFac
     return kept
 
 
-def segments(response: str, context: AnswerContext) -> list[tuple[RecipeFact | None, str]]:
-    """Split the response by which recipe each part is talking about.
-
-    A recipe's title marks the start of its section; everything up to the next title belongs to
-    it. Text before any title is answer-level — counts, the user's constraints, verified totals.
-    An answer that names no recipe degrades to a single answer-level segment, which is the old
-    union behaviour and the correct fallback.
-    """
-    kept = mentions(response, context)
-    if not kept:
-        return [(None, response)]
-
-    parts: list[tuple[RecipeFact | None, str]] = []
-    if kept[0][0] > 0:
-        parts.append((None, response[: kept[0][0]]))
-    for index, (position, recipe) in enumerate(kept):
-        end = kept[index + 1][0] if index + 1 < len(kept) else len(response)
-        parts.append((recipe, response[position:end]))
-    return parts
-
-
 @dataclass(frozen=True)
 class Verdict:
     """The guardrail's decision, with everything needed to explain or log it."""

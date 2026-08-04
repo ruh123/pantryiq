@@ -1474,3 +1474,46 @@ Opus 5 is retained on both calls by decision. Time to first token is a **median 
 which must complete before retrieval can start. Sonnet 5 parses identically in 2,354 ms against
 Opus 5's 3,646 ms and would close the gap — not taken, because model choice is the operator's
 decision rather than a silent optimisation.
+
+### 16.8 The rebuilt guardrail's own sweep
+
+The rewrite in §16.3 was ~120 lines of new logic that no sweep had ever seen, so it got one.
+
+**45 mutations, 18 caught, 27 survived — 40%** (44% adjusting for three provably-equivalent
+mutants and one targeting dead code). The largest hole was structural: **the entire `mentions()`
+overlap-resolution block was unprotected.** Reversing its sort key, dropping the sort, and
+`covered_to = end -> start` all survived — the code that stops `"Potato Casserole"` claiming
+`"Hash Brown Potato Casserole"`'s section, which is the bug it was written to fix.
+
+The sweep also **found a bug in its own harness mid-run**: mutations of identical size written
+within the same second reused a stale `__pycache__` entry, so a run could silently measure the
+*previous* mutation. Fixed with `PYTHONDONTWRITEBYTECODE=1` and a re-run of all 45. Both runs
+agreed on every verdict, so no result was corrupted — but that is only known because it re-ran.
+This project has now had three sweeps and **two of them had harness bugs**.
+
+**Four more tests were satisfied by accident**, bringing the running total to eight:
+
+| test | why it could not fail |
+|---|---|
+| `..._count_gets_no_tolerance_at_any_magnitude` | asserted only at 5 vs 6, where 1% of 5 is 0.05 — the property only bites above 100 |
+| `..._title_that_contains_another_title...` | end-to-end, and a spurious mention only *widens* a sentence's scope; a passing assertion can never see a scope that is too wide |
+| `..._nested_parenthetical_still_matches` | rescued twice: no mention found falls back to the whole-context union, and the value also sat inside 1% of the fixture's `total_grams` |
+| `..._rejects_a_value_near_nothing_in_the_scope` | 9,999 against 3,470 stays rejected with the tolerance anywhere up to ~187% |
+
+The first three are now asserted against `mentions()` directly rather than through `check()`, and
+the fourth pins a value just outside the band instead of far from it.
+
+**And a structural gap that made two mutations unkillable:** every recipe id in the fixtures was
+`r1`/`r2` — two characters, below `_needles`' own `len >= 3` floor — so id-based matching was
+inert across the entire suite. There is now a test using realistic `recipenlg:` ids.
+
+`segments()` was **deleted**: 21 lines with no caller in `src/`, `scripts/` or `tests/`. A
+mutation to it is unkillable by construction, which is how it was found.
+
+Closed: 23 survivors by 18 new tests, plus the four weakened ones, all **re-verified by replaying
+the mutations** rather than by inspection — 13/13 caught. Four remain open and are not defects:
+two are provably equivalent (`.rstrip(".")`, `round(cov * 100, 1)` — exhaustive check finds no
+input where behaviour differs), one is equivalent for any needle not starting with whitespace,
+and one targeted the dead code now removed.
+
+Suite: **581 tests**, 565 on a corpus-free checkout.
