@@ -140,6 +140,11 @@ class AnswerContext:
     # fact like any other, and without a channel for it the narration has to refuse to describe
     # its own plan. It did exactly that before this field existed.
     computed: tuple[tuple[str, float], ...] = ()
+    # Names whose digits are not quantities — a dbt test's `unique_id`, a column called
+    # `kcal_per_100g`. Recipe ids are handled automatically from `recipes`; this is for
+    # everything else. Quoting an identifier is quoting the context, so its digits must not be
+    # read as claims: `kcal_per_100g` was rejected as a fabricated "100".
+    identifiers: tuple[str, ...] = ()
 
     def numbers(self) -> set[float]:
         """The union of every quotable value, plus the constraints the user themselves stated.

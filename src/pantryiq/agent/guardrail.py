@@ -129,7 +129,11 @@ def check(response: str, context: AnswerContext) -> Verdict:
     """Verify every number in `response` against `context`."""
     allowed = context.numbers()
     limit = max(len(context.recipes), 1)
-    scanned = _scan(response, ignore=[r.recipe_id for r in context.recipes])
+    # Longest first: `kcal_per_100g` must be stripped before a shorter name that is a prefix of
+    # it, or the leftover digits read as a claim.
+    names = sorted([r.recipe_id for r in context.recipes] + list(context.identifiers),
+                   key=len, reverse=True)
+    scanned = _scan(response, ignore=names)
     unsupported = tuple(value for value, quantified in scanned
                         if not permitted(value, allowed, limit, quantified))
     return Verdict(passed=not unsupported, checked=len(scanned), unsupported=unsupported)

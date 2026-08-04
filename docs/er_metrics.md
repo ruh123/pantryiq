@@ -1249,3 +1249,39 @@ that cannot fail is not evidence.* Same lesson as §13's mutation sweep, in a ne
   refused to describe its own week plan, saying it could not total costs across days. An
   `<already_computed>` block now carries figures the planner calculated *and verified*, which are
   facts rather than arithmetic the model performed.
+
+### 4.8 — the quality explainer, and two more identifier bugs
+
+Design doc §97, and part of the Phase-4 gate at §124 (which I had earlier described as excluding
+it — it does not). Two triggers, both from artifacts that already exist: dbt's
+`target/run_results.json`, and the 2,884 of 9,163 strings (31.5%) the resolver abstained on or
+flagged. Low-confidence findings are ranked by **occurrence, not cosine** — a string the resolver
+was unsure about that touches 1,811 recipe lines outranks one touching 1, because operator
+attention is the scarce resource the table exists to direct.
+
+**The explainer is guardrailed like a user-facing answer.** An ops summary that invents a row
+count is worse than no summary: it will be believed and acted on by someone without the query in
+front of them. A rejected draft degrades to the facts themselves rather than being published.
+
+**Watched failing, per the same standard as the gate proof.** `prove_gate.py`'s impossible row was
+injected, `dbt build` run against staging, and the resulting `run_results.json` captured as a
+fixture — a real artifact, not a hand-written one. It records **1 failing row and 17 downstream
+models skipped**, and that propagation count is what tells an operator nothing reached Gold.
+
+The first run of it against that real failure was **rejected by the guardrail**, and both causes
+were mine:
+
+1. `kcal_per_100g` — the *column name* that failed. Its digits were read as a fabricated "100".
+   Same class as the recipe-id false positive in §15 above, and fixed the same way:
+   `AnswerContext.identifiers` now carries names whose digits are not quantities, stripped
+   longest-first so a shorter name that is a prefix of another cannot leave digits behind.
+2. `910` — the test's configured upper bound. The model wrote "outside the configured bounds
+   (0 to 910)", which is correct and was not in the ledger. Now read from `manifest.json`'s
+   `test_metadata.kwargs`, rather than parsed out of the mangled test name
+   (`..._kcal_per_100g__910__0.b67c7d28cb`) which is a string, not a data structure.
+
+With both fixed the same failure produces a summary that passes on 7 numeric claims and correctly
+infers, from the write-audit-publish design, that downstream consumers are reading *stale* data
+rather than wrong data. **Percentages are precomputed into the ledger** for the same reason as the
+planner's totals: the model will write "2,884 of 9,163 (31.5%)" correctly, and a guardrail holding
+only the two counts would reject a true sentence.

@@ -1,0 +1,658 @@
+{
+ "metadata": {
+  "dbt_schema_version": "https://schemas.getdbt.com/dbt/run-results/v6.json",
+  "dbt_version": "1.12.0",
+  "generated_at": "2026-08-04T20:43:19.830622Z",
+  "invocation_id": "a67aa4d2-6444-414d-a04b-6cb08c2602b5",
+  "invocation_started_at": "2026-08-04T20:43:19.373292Z",
+  "env": {}
+ },
+ "results": [
+  {
+   "status": "success",
+   "timing": [
+    {
+     "name": "compile",
+     "started_at": "2026-08-04T20:43:19.712866Z",
+     "completed_at": "2026-08-04T20:43:19.712869Z"
+    },
+    {
+     "name": "execute",
+     "started_at": "2026-08-04T20:43:19.713042Z",
+     "completed_at": "2026-08-04T20:43:19.747818Z"
+    }
+   ],
+   "thread_id": "Thread-3 (worker)",
+   "execution_time": 0.04030585289001465,
+   "adapter_response": {
+    "_message": "INSERT 98",
+    "code": "INSERT",
+    "rows_affected": 98
+   },
+   "message": "INSERT 98",
+   "failures": null,
+   "unique_id": "seed.pantryiq.cost_reference",
+   "compiled": null,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "success",
+   "timing": [
+    {
+     "name": "compile",
+     "started_at": "2026-08-04T20:43:19.712262Z",
+     "completed_at": "2026-08-04T20:43:19.717750Z"
+    },
+    {
+     "name": "execute",
+     "started_at": "2026-08-04T20:43:19.729342Z",
+     "completed_at": "2026-08-04T20:43:19.762543Z"
+    }
+   ],
+   "thread_id": "Thread-2 (worker)",
+   "execution_time": 0.05330801010131836,
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "message": "OK",
+   "failures": null,
+   "unique_id": "model.pantryiq.recipe_meta",
+   "compiled": true,
+   "relation_name": "\"pantryiq\".\"gold_staging\".\"recipe_meta\"",
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "success",
+   "timing": [
+    {
+     "name": "compile",
+     "started_at": "2026-08-04T20:43:19.710035Z",
+     "completed_at": "2026-08-04T20:43:19.717645Z"
+    },
+    {
+     "name": "execute",
+     "started_at": "2026-08-04T20:43:19.721141Z",
+     "completed_at": "2026-08-04T20:43:19.763776Z"
+    }
+   ],
+   "thread_id": "Thread-1 (worker)",
+   "execution_time": 0.054913997650146484,
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "message": "OK",
+   "failures": null,
+   "unique_id": "model.pantryiq.canonical_ingredients",
+   "compiled": true,
+   "relation_name": "\"pantryiq\".\"gold_staging\".\"canonical_ingredients\"",
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "pass",
+   "timing": [
+    {
+     "name": "compile",
+     "started_at": "2026-08-04T20:43:19.766783Z",
+     "completed_at": "2026-08-04T20:43:19.774432Z"
+    },
+    {
+     "name": "execute",
+     "started_at": "2026-08-04T20:43:19.777247Z",
+     "completed_at": "2026-08-04T20:43:19.790213Z"
+    }
+   ],
+   "thread_id": "Thread-3 (worker)",
+   "execution_time": 0.026933908462524414,
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "message": null,
+   "failures": 0,
+   "unique_id": "test.pantryiq.not_null_recipe_meta_recipe_id.ba7c8db59f",
+   "compiled": true,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "pass",
+   "timing": [
+    {
+     "name": "compile",
+     "started_at": "2026-08-04T20:43:19.771068Z",
+     "completed_at": "2026-08-04T20:43:19.777079Z"
+    },
+    {
+     "name": "execute",
+     "started_at": "2026-08-04T20:43:19.782651Z",
+     "completed_at": "2026-08-04T20:43:19.791202Z"
+    }
+   ],
+   "thread_id": "Thread-2 (worker)",
+   "execution_time": 0.02725505828857422,
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "message": null,
+   "failures": 0,
+   "unique_id": "test.pantryiq.unique_recipe_meta_recipe_id.e0544376aa",
+   "compiled": true,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "fail",
+   "timing": [
+    {
+     "name": "compile",
+     "started_at": "2026-08-04T20:43:19.774540Z",
+     "completed_at": "2026-08-04T20:43:19.783245Z"
+    },
+    {
+     "name": "execute",
+     "started_at": "2026-08-04T20:43:19.784222Z",
+     "completed_at": "2026-08-04T20:43:19.791583Z"
+    }
+   ],
+   "thread_id": "Thread-1 (worker)",
+   "execution_time": 0.02026081085205078,
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "message": "Got 1 result, configured to fail if != 0",
+   "failures": 1,
+   "unique_id": "test.pantryiq.accepted_range_canonical_ingredients_kcal_per_100g__910__0.b67c7d28cb",
+   "compiled": true,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "success",
+   "timing": [
+    {
+     "name": "compile",
+     "started_at": "2026-08-04T20:43:19.757003Z",
+     "completed_at": "2026-08-04T20:43:19.757983Z"
+    },
+    {
+     "name": "execute",
+     "started_at": "2026-08-04T20:43:19.758100Z",
+     "completed_at": "2026-08-04T20:43:19.794376Z"
+    }
+   ],
+   "thread_id": "Thread-4 (worker)",
+   "execution_time": 0.03896284103393555,
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "message": "OK",
+   "failures": null,
+   "unique_id": "model.pantryiq.ingredient_costs",
+   "compiled": true,
+   "relation_name": "\"pantryiq\".\"gold_staging\".\"ingredient_costs\"",
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "pass",
+   "timing": [
+    {
+     "name": "compile",
+     "started_at": "2026-08-04T20:43:19.796320Z",
+     "completed_at": "2026-08-04T20:43:19.800791Z"
+    },
+    {
+     "name": "execute",
+     "started_at": "2026-08-04T20:43:19.801298Z",
+     "completed_at": "2026-08-04T20:43:19.810844Z"
+    }
+   ],
+   "thread_id": "Thread-3 (worker)",
+   "execution_time": 0.017284154891967773,
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "message": null,
+   "failures": 0,
+   "unique_id": "test.pantryiq.not_null_canonical_ingredients_canonical_id.501baf64da",
+   "compiled": true,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "pass",
+   "timing": [
+    {
+     "name": "compile",
+     "started_at": "2026-08-04T20:43:19.798429Z",
+     "completed_at": "2026-08-04T20:43:19.801188Z"
+    },
+    {
+     "name": "execute",
+     "started_at": "2026-08-04T20:43:19.801998Z",
+     "completed_at": "2026-08-04T20:43:19.812251Z"
+    }
+   ],
+   "thread_id": "Thread-2 (worker)",
+   "execution_time": 0.018687009811401367,
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "message": null,
+   "failures": 0,
+   "unique_id": "test.pantryiq.unique_canonical_ingredients_canonical_id.75ba285957",
+   "compiled": true,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "pass",
+   "timing": [
+    {
+     "name": "compile",
+     "started_at": "2026-08-04T20:43:19.802993Z",
+     "completed_at": "2026-08-04T20:43:19.807135Z"
+    },
+    {
+     "name": "execute",
+     "started_at": "2026-08-04T20:43:19.807640Z",
+     "completed_at": "2026-08-04T20:43:19.813244Z"
+    }
+   ],
+   "thread_id": "Thread-1 (worker)",
+   "execution_time": 0.013999223709106445,
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "message": null,
+   "failures": 0,
+   "unique_id": "test.pantryiq.accepted_range_ingredient_costs_usd_per_kg__False__0.c63db0f4f4",
+   "compiled": true,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "pass",
+   "timing": [
+    {
+     "name": "compile",
+     "started_at": "2026-08-04T20:43:19.804761Z",
+     "completed_at": "2026-08-04T20:43:19.807317Z"
+    },
+    {
+     "name": "execute",
+     "started_at": "2026-08-04T20:43:19.808072Z",
+     "completed_at": "2026-08-04T20:43:19.813599Z"
+    }
+   ],
+   "thread_id": "Thread-4 (worker)",
+   "execution_time": 0.014180183410644531,
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "message": null,
+   "failures": 0,
+   "unique_id": "test.pantryiq.not_null_ingredient_costs_canonical_id.d38ee1b4d9",
+   "compiled": true,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-2 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "model.pantryiq.recipe_ingredients_resolved",
+   "compiled": false,
+   "relation_name": "\"pantryiq\".\"gold_staging\".\"recipe_ingredients_resolved\"",
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-1 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "test.pantryiq.accepted_range_recipe_ingredients_resolved_grams__False__0.860c29da6e",
+   "compiled": false,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-4 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "test.pantryiq.not_null_recipe_ingredients_resolved_recipe_id.43c1ec7a5d",
+   "compiled": false,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-2 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "test.pantryiq.relationships_recipe_ingredients_resolved_canonical_id__canonical_id__ref_canonical_ingredients_.a6cd19e342",
+   "compiled": false,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-1 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "test.pantryiq.unique_line_per_recipe_recipe_ingredients_resolved_.f1be34cb02",
+   "compiled": false,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "pass",
+   "timing": [
+    {
+     "name": "compile",
+     "started_at": "2026-08-04T20:43:19.816327Z",
+     "completed_at": "2026-08-04T20:43:19.818633Z"
+    },
+    {
+     "name": "execute",
+     "started_at": "2026-08-04T20:43:19.819093Z",
+     "completed_at": "2026-08-04T20:43:19.822503Z"
+    }
+   ],
+   "thread_id": "Thread-3 (worker)",
+   "execution_time": 0.007478237152099609,
+   "adapter_response": {
+    "_message": "OK"
+   },
+   "message": null,
+   "failures": 0,
+   "unique_id": "test.pantryiq.unique_ingredient_costs_canonical_id.e847f89394",
+   "compiled": true,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-4 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "model.pantryiq.recipe_nutrition",
+   "compiled": false,
+   "relation_name": "\"pantryiq\".\"gold_staging\".\"recipe_nutrition\"",
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-1 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "test.pantryiq.accepted_range_recipe_nutrition_cost_coverage__1__0.2fe308ffdc",
+   "compiled": false,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-3 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "test.pantryiq.accepted_range_recipe_nutrition_data_trust_score__1__0.c2c3d24237",
+   "compiled": false,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-2 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "test.pantryiq.accepted_range_recipe_nutrition_kcal_per_100g__910__0.6671ee2dc4",
+   "compiled": false,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-4 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "test.pantryiq.accepted_range_recipe_nutrition_nutrition_coverage__1__0.a17b8f1f54",
+   "compiled": false,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-1 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "test.pantryiq.accepted_range_recipe_nutrition_servings__200__1.4c1f9fa524",
+   "compiled": false,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-3 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "test.pantryiq.accepted_range_recipe_nutrition_total_grams__False__0.d9bdfe07be",
+   "compiled": false,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-2 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "test.pantryiq.not_null_recipe_nutrition_recipe_id.2221c7d1a2",
+   "compiled": false,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-4 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "test.pantryiq.unique_recipe_nutrition_recipe_id.f1fd363960",
+   "compiled": false,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-1 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "model.pantryiq.recipe_tags",
+   "compiled": false,
+   "relation_name": "\"pantryiq\".\"gold_staging\".\"recipe_tags\"",
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-2 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "test.pantryiq.accepted_values_recipe_tags_tag__vegetarian__vegan__gluten_free.121340cc2f",
+   "compiled": false,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  },
+  {
+   "status": "skipped",
+   "timing": [],
+   "thread_id": "Thread-4 (worker)",
+   "execution_time": 0,
+   "adapter_response": {},
+   "message": null,
+   "failures": null,
+   "unique_id": "test.pantryiq.not_null_recipe_tags_recipe_id.92e52b0a49",
+   "compiled": false,
+   "relation_name": null,
+   "batch_results": null,
+   "overload_results": null
+  }
+ ],
+ "elapsed_time": 0.16373085975646973,
+ "args": {
+  "upload_to_artifacts_ingest_api": false,
+  "require_batched_execution_for_custom_microbatch_strategy": true,
+  "print": true,
+  "empty": false,
+  "maximum_seed_size_mib": 1,
+  "partial_parse": true,
+  "support_custom_ref_kwargs": false,
+  "use_catalogs_v2": false,
+  "require_ref_searches_node_package_before_root": false,
+  "include_saved_query": false,
+  "write_json": true,
+  "macro_debugging": false,
+  "log_format_file": "debug",
+  "export_saved_queries": false,
+  "use_colors": true,
+  "require_all_warnings_handled_by_warn_error": true,
+  "favor_state": false,
+  "log_file_max_bytes": 10485760,
+  "show": false,
+  "send_anonymous_usage_stats": true,
+  "require_generic_test_arguments_property": true,
+  "exclude": [],
+  "warn_error_options": {
+   "error": [],
+   "warn": [],
+   "silence": []
+  },
+  "show_all_deprecations": false,
+  "indirect_selection": "eager",
+  "state_modified_compare_more_unrendered_values": true,
+  "state_modified_compare_vars": false,
+  "enable_grouped_warn_error_parser_logs": false,
+  "source_freshness_run_project_hooks": true,
+  "log_format": "default",
+  "require_explicit_package_overrides_for_builtin_materializations": true,
+  "exclude_resource_types": [],
+  "introspect": true,
+  "which": "build",
+  "require_corrected_analysis_fqns": false,
+  "log_path": "/Users/abhiruchishinde/Projects/pantryiq/logs",
+  "target": "staging",
+  "latest_version_pointer_enabled_by_default": false,
+  "populate_cache": true,
+  "require_yaml_configuration_for_mf_time_spines": true,
+  "static_parser": true,
+  "partial_parse_file_diff": true,
+  "hints_enabled": true,
+  "cache_selected_only": false,
+  "require_unique_project_resource_names": false,
+  "vars": {},
+  "require_resource_names_without_spaces": true,
+  "use_colors_file": true,
+  "v2_parser": "dbt-core-experimental-parser parse",
+  "invocation_command": "dbt build --profiles-dir . --target staging",
+  "use_fast_test_edges": false,
+  "require_sql_header_in_test_configs": false,
+  "skip_nodes_if_on_run_start_fails": true,
+  "require_source_and_semantic_model_names_without_spaces": false,
+  "profiles_dir": ".",
+  "show_resource_report": false,
+  "version_check": true,
+  "resource_types": [],
+  "strict_mode": false,
+  "require_valid_schema_from_generate_schema_name": false,
+  "validate_macro_args": true,
+  "defer": false,
+  "quiet": false,
+  "log_level_file": "debug",
+  "select": [],
+  "project_dir": "/Users/abhiruchishinde/Projects/pantryiq",
+  "printer_width": 80,
+  "log_level": "info",
+  "allow_jinja_file_extensions": false,
+  "require_nested_cumulative_type_params": true,
+  "use_v2_parser": false,
+  "sqlparse": {
+   "MAX_GROUPING_DEPTH": null,
+   "MAX_GROUPING_TOKENS": null
+  }
+ }
+}

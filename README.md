@@ -119,6 +119,11 @@ before quoting anything from Gold ([§14](docs/er_metrics.md)):
   bologna. The pipeline is faithful; the source is short. A directions-based veto now blocks a
   tag when the method names a food the ingredients do not.
 
+- **The quality explainer drafts runbook entries** for failed dbt tests and low-confidence
+  resolutions, guardrailed the same way — a rejected draft degrades to the facts rather than
+  being published. Proven against a real captured dbt failure (1 failing row, 17 downstream
+  models skipped), not a hand-written one.
+
 **Still to build** — Phase 5: the web app and deployment.
 
 (`foodPortions.gramWeight` is absent from the abridged `/foods/list` payload in Bronze, but
@@ -132,6 +137,7 @@ before quoting anything from Gold ([§14](docs/er_metrics.md)):
 uv run python -m pantryiq.agent "what can I make with chicken, rice and onions?"
 uv run python -m pantryiq.agent.planner        # a week's plan, solved in code
 uv run python scripts/measure_guardrail.py     # catch rate + false-positive rate
+uv run python -m pantryiq.agent.explain        # runbook entries for failures + low-confidence
 ```
 
 - Measured results, including the negative ones: [`docs/er_metrics.md`](docs/er_metrics.md)

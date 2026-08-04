@@ -1,0 +1,17 @@
+{
+ "nodes": {
+  "test.pantryiq.accepted_range_canonical_ingredients_kcal_per_100g__910__0.b67c7d28cb": {
+   "test_metadata": {
+    "name": "accepted_range",
+    "kwargs": {
+     "min_value": 0,
+     "max_value": 910,
+     "column_name": "kcal_per_100g",
+     "model": "{{ get_where_subquery(ref('canonical_ingredients')) }}"
+    },
+    "namespace": null
+   },
+   "column_name": "kcal_per_100g"
+  }
+ }
+}

@@ -515,12 +515,48 @@ This exposed one more thing worth recording. Because we'd told Claude never to a
 wrong outcome. So we added a separate channel for figures that were *already calculated and
 checked by code*, which the AI may quote. Those are results, not arithmetic it performed.
 
+### The quality explainer — the same idea pointed at the engineers
+
+The last piece serves whoever maintains this rather than whoever cooks from it. When a data
+quality check fails, or when the matcher wasn't confident about an ingredient, the agent writes a
+plain-English note into a runbook table: what broke, what it means for the published data, and
+what to look at first.
+
+We made it prove itself the same way we proved the quality gate. We deliberately broke the
+pipeline — injected an impossible food (a calorie value no food can have) — captured exactly what
+the failure looked like, and pointed the explainer at it. It wrote:
+
+> "An accepted_range test on `canonical_ingredients.kcal_per_100g` failed: 1 row falls outside the
+> configured bounds of 0 to 910, and because the test failed, 17 downstream models were skipped
+> and did not build. That means anything depending on canonical ingredients is stale — consumers
+> are reading the previous run's output, not fresh data... start by querying for `kcal_per_100g`
+> below 0 or above 910 to identify the offending ingredient."
+
+That's a genuinely useful thing to be woken up by. **And the first time we ran it, our own
+guardrail rejected it** — for two reasons, both our fault:
+
+- It quoted the column name `kcal_per_100g`, and our number-checker read the "100" in that name as
+  a made-up figure. It's part of a *name*, not a measurement. (Exactly the same mistake we'd
+  already made once with recipe IDs.)
+- It quoted the allowed range "0 to 910" — which is real, but we hadn't put those bounds into the
+  list of facts it was allowed to quote. So a true statement was rejected.
+
+Both fixed, and the same failure now produces a summary that passes cleanly. This is the pattern
+the whole project runs on: the check fired, we looked at *why*, and the answer was that the check
+was wrong rather than the output.
+
+The explainer is held to the same standard as answers to users — it can't invent a number either.
+An ops summary with a made-up row count is worse than none at all, because someone will act on it
+without the query in front of them. If the drafted summary fails the check, the runbook gets the
+raw facts instead.
+
 ### What we can now do
 
 ```
 uv run python -m pantryiq.agent "what can I make with chicken, rice and onions?"
 uv run python -m pantryiq.agent.planner
 uv run python scripts/measure_guardrail.py
+uv run python -m pantryiq.agent.explain          # runbook entries for failures
 ```
 
 Every question is logged — the question, what was retrieved, the answer, and the guardrail's
