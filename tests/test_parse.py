@@ -6,10 +6,8 @@ answer can still do damage — the vocabulary boundary, the refusal path, and th
 parser cannot emit anything but a filter.
 """
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
-import duckdb
 import pytest
 
 from pantryiq.agent.claude import Refused, injection_paragraph, text_of
@@ -108,15 +106,10 @@ def test_the_coverage_bar_is_not_something_the_model_can_move():
     assert parse("x", fake_client(payload())).min_coverage == 0.8
 
 
-@pytest.mark.skipif(not Path("data/pantryiq_gold.duckdb").exists(), reason="export not present")
-def test_the_tag_vocabulary_still_matches_what_gold_publishes():
+def test_the_tag_vocabulary_still_matches_what_gold_publishes(fixture_gold):
     """Pinned constants drift. If `models/gold/recipe_tags.sql` gains or retires a tag, the
     parser would go on offering a filter that matches nothing, or stop offering a real one."""
-    con = duckdb.connect("data/pantryiq_gold.duckdb", read_only=True)
-    try:
-        published = {tag for (tag,) in con.execute(
-            "SELECT DISTINCT tag FROM gold.recipe_tags").fetchall()}
-    finally:
-        con.close()
+    published = {tag for (tag,) in fixture_gold.execute(
+        "SELECT DISTINCT tag FROM gold.recipe_tags").fetchall()}
 
     assert published == set(TAGS)

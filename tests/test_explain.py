@@ -169,11 +169,10 @@ def test_an_entry_is_written_with_its_verdict(tmp_path, failure):
 
 # ------------------------------------------------------- low-confidence trigger
 
-@pytest.mark.skipif(not WAREHOUSE.exists(), reason="warehouse not present")
-def test_low_confidence_findings_are_ranked_by_how_many_lines_they_affect():
+def test_low_confidence_findings_are_ranked_by_how_many_lines_they_affect(fixture_warehouse):
     """Not by cosine. A string the resolver was unsure about that appears 1,811 times matters
     more than one appearing once, and operator attention is the scarce resource here."""
-    findings = low_confidence_findings(limit=5)
+    findings = low_confidence_findings(fixture_warehouse, limit=5)
 
     affected = [dict(finding.facts)["recipe_lines_affected"] for finding in findings]
 
@@ -181,12 +180,11 @@ def test_low_confidence_findings_are_ranked_by_how_many_lines_they_affect():
     assert all(finding.trigger == "low_confidence" for finding in findings)
 
 
-@pytest.mark.skipif(not WAREHOUSE.exists(), reason="warehouse not present")
-def test_the_percentage_is_precomputed_because_the_model_may_not_compute_it():
+def test_the_percentage_is_precomputed_because_the_model_may_not_compute_it(fixture_warehouse):
     """The model will write "2,884 of 9,163 (31.5%)" — correctly. A ledger holding only the two
     counts would reject a true sentence, and deriving it is exactly the arithmetic the model is
     forbidden elsewhere."""
-    facts = dict(low_confidence_findings(limit=1)[0].facts)
+    facts = dict(low_confidence_findings(fixture_warehouse, limit=1)[0].facts)
 
     expected = round(100 * facts["undecided_strings"] / facts["distinct_strings_total"], 1)
 

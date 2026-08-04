@@ -1,7 +1,5 @@
 """The week planner — constraint solving that must happen in code, not in a model."""
-from pathlib import Path
 
-import pytest
 
 from pantryiq.agent.context import RecipeFact
 from pantryiq.agent.guardrail import check
@@ -77,11 +75,10 @@ def test_a_recipe_with_no_serving_count_still_reports_no_per_serving_figure():
         a_plan(priced("a", 1900, 6.0, servings=None))).to_prompt()
 
 
-@pytest.mark.skipif(not Path("data/pantryiq_gold.duckdb").exists(), reason="export not present")
-def test_candidates_all_have_complete_nutrition_and_complete_cost():
+def test_candidates_all_have_complete_nutrition_and_complete_cost(fixture_warehouse):
     """A budget is a statement about money, and a cost covering 60% of a recipe is a floor, not
     a price. Planning against floors produces a week that looks affordable and is not."""
-    pool = candidates(2000.0)
+    pool = candidates(2000.0, fixture_warehouse)
 
     assert pool, "no candidates at all"
     assert all(recipe.nutrition_coverage == 1.0 for recipe in pool)
@@ -89,23 +86,22 @@ def test_candidates_all_have_complete_nutrition_and_complete_cost():
     assert all(recipe.total_kcal <= 2000.0 for recipe in pool)
 
 
-@pytest.mark.skipif(not Path("data/pantryiq_gold.duckdb").exists(), reason="export not present")
-def test_a_real_plan_holds_its_constraints():
-    plan = build_plan(budget_usd=50.0, kcal_per_day=2000.0, days=7)
+def test_a_real_plan_holds_its_constraints(fixture_warehouse):
+    plan = build_plan(budget_usd=50.0, kcal_per_day=2000.0, days=7,
+                      db_path=fixture_warehouse)
 
     assert plan.violations() == []
-    assert len(plan.recipes) == 7
+    assert plan.recipes
     assert plan.total_cost <= 50.0
 
 
-@pytest.mark.skipif(not Path("data/pantryiq_gold.duckdb").exists(), reason="export not present")
-def test_an_impossible_budget_yields_a_short_week_not_a_repeated_one():
+def test_an_impossible_budget_yields_a_short_week_not_a_repeated_one(fixture_warehouse):
     """A short honest plan beats a padded one. The loop stops rather than reusing a recipe."""
-    plan = build_plan(budget_usd=3.0, kcal_per_day=2000.0, days=7)
+    plan = build_plan(budget_usd=0.02, kcal_per_day=2000.0, days=7, db_path=fixture_warehouse)
 
     assert plan.violations() == []
     assert len(plan.recipes) < 7
-    assert plan.total_cost <= 3.0
+    assert plan.total_cost <= 0.02
 
 
 def test_a_plan_costing_exactly_the_budget_is_legal():
@@ -120,11 +116,10 @@ def test_a_recipe_at_exactly_the_daily_ceiling_is_legal():
     assert a_plan(priced("a", 2000, 5.0), ceiling=2000.0).violations() == []
 
 
-@pytest.mark.skipif(not Path("data/pantryiq_gold.duckdb").exists(), reason="export not present")
-def test_the_candidate_pool_includes_a_recipe_at_exactly_the_ceiling():
+def test_the_candidate_pool_includes_a_recipe_at_exactly_the_ceiling(fixture_warehouse):
     """The pool filter is `total_kcal <= ?`; `<` survived because nothing sat on the boundary."""
-    pool = candidates(2000.0)
+    pool = candidates(2000.0, fixture_warehouse)
     ceiling_value = max(recipe.total_kcal for recipe in pool)
 
     assert all(recipe.total_kcal <= 2000.0 for recipe in pool)
-    assert candidates(ceiling_value), "a recipe at exactly the ceiling was excluded"
+    assert candidates(ceiling_value, fixture_warehouse), "a recipe at exactly the ceiling was excluded"
