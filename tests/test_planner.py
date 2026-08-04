@@ -117,9 +117,28 @@ def test_a_recipe_at_exactly_the_daily_ceiling_is_legal():
 
 
 def test_the_candidate_pool_includes_a_recipe_at_exactly_the_ceiling(fixture_warehouse):
-    """The pool filter is `total_kcal <= ?`; `<` survived because nothing sat on the boundary."""
+    """The pool filter is `total_kcal <= ?`; `<` survived twice — first because nothing sat on
+    the boundary, then because asserting the pool is merely non-empty still passes when the one
+    recipe ON the boundary is the only thing dropped. The boundary recipe must be PRESENT."""
     pool = candidates(2000.0, fixture_warehouse)
-    ceiling_value = max(recipe.total_kcal for recipe in pool)
+    heaviest = max(recipe.total_kcal for recipe in pool)
+
+    at_ceiling = candidates(heaviest, fixture_warehouse)
 
     assert all(recipe.total_kcal <= 2000.0 for recipe in pool)
-    assert candidates(ceiling_value, fixture_warehouse), "a recipe at exactly the ceiling was excluded"
+    assert heaviest in [recipe.total_kcal for recipe in at_ceiling], \
+        "the recipe at exactly the ceiling was excluded"
+
+
+def test_the_greedy_loop_can_spend_the_last_cent_of_the_budget(fixture_warehouse):
+    """`cost <= remaining` -> `<` inside `build_plan` survived: the boundary tests all built a
+    `Plan` directly and checked `violations()`, so the SELECTION loop's own comparison — the code
+    that decides what goes in — was never exercised on the boundary."""
+    pool = candidates(2000.0, fixture_warehouse)
+    cheapest = min(recipe.cost_total_usd for recipe in pool)
+
+    plan = build_plan(budget_usd=cheapest, kcal_per_day=2000.0, days=1,
+                      db_path=fixture_warehouse)
+
+    assert len(plan.recipes) == 1, "a recipe costing exactly the budget was not affordable"
+    assert plan.violations() == []

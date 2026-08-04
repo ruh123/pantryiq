@@ -87,6 +87,18 @@ RECIPES = [
      [("onion", PRICED[0]), ("chicken broth", PRICED[8])]),
 ]
 
+# Distinct counts so a ranking is observable. "onion" is deliberately the most frequent and
+# "sauce" the least, so the top of a DESC ranking is unambiguous.
+OCCURRENCES = {
+    "onion": 91, "all-purpose flour": 74, "milk": 63, "ground beef": 52,
+    "worcestershire sauce": 41, "flour": 33, "salt": 22, "vinegar": 14,
+    "chicken broth": 8, "something nobody resolved": 3, "sauce": 1,
+}
+
+# Resolved, but marked for review — the flagged-but-not-abstained case, which is 157 of the
+# 2,884 undecided strings in the real warehouse and was represented by nothing here.
+FLAGGED_ONLY = {"worcestershire sauce"}
+
 SILVER_DDL = """
 CREATE SCHEMA IF NOT EXISTS silver;
 
@@ -155,20 +167,27 @@ def build_silver(db_path: Path | str) -> Path:
                             [recipe_id, index, 100.0, "volumetric", True])
                 if text not in seen:
                     seen.add(text)
+                    # Occurrence counts must VARY, or a ranking test cannot discriminate: with
+                    # every string at 10, reversing `ORDER BY occurrence_count DESC` produced an
+                    # identical list and the mutation survived.
+                    occurrences = OCCURRENCES.get(text, 5)
                     con.execute("INSERT INTO silver.distinct_ingredient_strings VALUES (?,?,?)",
-                                [text, 10, "head"])
+                                [text, occurrences, "head"])
                     entity = next((e for e in ENTITIES if e[0] == fdc_id), None)
                     con.execute(
                         "INSERT INTO silver.ingredient_entity_map VALUES "
                         "(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                        [text, 10, "head", fdc_id,
+                        [text, occurrences, "head", fdc_id,
                          entity[1] if entity else None,
                          entity[3] if entity else None,
                          entity[4] if entity else None,
                          entity[5] if entity else None,
                          entity[6] if entity else None,
                          False, 0.9 if fdc_id else 0.2, 0.9 if fdc_id else 0.1,
-                         fdc_id is None, fdc_id is None])
+                         # flagged and abstained must DIFFER on at least one row, or
+                         # `WHERE abstained OR flagged` and `... AND ...` return the same set and
+                         # the difference between them is untestable.
+                         text in FLAGGED_ONLY or fdc_id is None, fdc_id is None])
     finally:
         con.close()
     return db_path

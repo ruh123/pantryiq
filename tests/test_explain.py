@@ -252,18 +252,21 @@ def test_a_test_failing_on_zero_rows_still_reports_the_count(tmp_path):
     assert dict(dbt_failures(artifact)[0].facts)["failing_rows"] == 0
 
 
-@pytest.mark.skipif(not WAREHOUSE.exists(), reason="warehouse not present")
-def test_the_top_low_confidence_finding_is_the_most_frequent_one():
+def test_the_top_low_confidence_finding_is_the_most_frequent_one(fixture_warehouse):
     """The previous assertion only checked the list was sorted, which a run of ties satisfies
-    vacuously — it passed under a full reversal of the ORDER BY."""
-    con = duckdb.connect(str(WAREHOUSE), read_only=True)
+    vacuously — it passed under a full reversal of the ORDER BY, and again on a fixture where
+    every string had the same count. Operator attention is the scarce resource this ranking
+    exists to direct, so the TOP entry is what has to be right."""
+    con = duckdb.connect(str(fixture_warehouse), read_only=True)
     try:
         highest = con.execute("SELECT max(occurrence_count) FROM silver.ingredient_entity_map "
                               "WHERE abstained OR flagged").fetchone()[0]
     finally:
         con.close()
 
-    assert dict(low_confidence_findings(limit=1)[0].facts)["recipe_lines_affected"] == highest
+    top = dict(low_confidence_findings(fixture_warehouse, limit=1)[0].facts)
+
+    assert top["recipe_lines_affected"] == highest
 
 
 def test_an_ingredient_string_cannot_break_out_of_the_fenced_region():
@@ -292,20 +295,22 @@ def test_a_detail_key_cannot_inject_a_tag_name():
     assert "dropped" not in prompt
 
 
-def test_which_strings_surface_is_pinned_not_just_their_order(tmp_path):
-    """`WHERE abstained OR flagged` -> `AND` drops the 157 flagged-but-not-abstained strings and
-    survived, because only ordering and trigger were asserted."""
-    if not WAREHOUSE.exists():
-        pytest.skip("warehouse not present")
-    con = duckdb.connect(str(WAREHOUSE), read_only=True)
+def test_a_flagged_string_counts_as_undecided_even_when_not_abstained(fixture_warehouse):
+    """`WHERE abstained OR flagged` -> `AND` drops the flagged-but-not-abstained strings — 157 of
+    2,884 in the real warehouse. It survived twice: once because only ordering was asserted, and
+    once because the fixture had no row where the two flags differ."""
+    con = duckdb.connect(str(fixture_warehouse), read_only=True)
     try:
-        expected = con.execute(
-            "SELECT count(*) FROM silver.ingredient_entity_map WHERE abstained OR flagged"
-        ).fetchone()[0]
+        either, both = con.execute(
+            "SELECT count(*) FILTER (WHERE abstained OR flagged),"
+            "       count(*) FILTER (WHERE abstained AND flagged)"
+            " FROM silver.ingredient_entity_map").fetchone()
     finally:
         con.close()
 
-    assert dict(low_confidence_findings(limit=1)[0].facts)["undecided_strings"] == expected
+    assert either > both, "the fixture no longer distinguishes flagged from abstained"
+    assert dict(low_confidence_findings(fixture_warehouse, limit=1)[0].facts
+                )["undecided_strings"] == either
 
 
 def test_the_rule_forbidding_invented_numbers_is_in_the_prompt():
