@@ -100,20 +100,30 @@ before quoting anything from Gold ([§14](docs/er_metrics.md)):
 "it can only speak from verified data" checkable rather than aspirational. Read
 [§15](docs/er_metrics.md) before quoting any of it:
 
-- **The guardrail catches 36/36 injected fabrications (100%, Wilson 90.4–100%) with a 0/20
-  false-positive rate** on unmodified answers, across five error classes — perturbed figures,
-  invented costs, fabricated serving counts, a total divided by its servings, and plausible
-  absent numbers. Both rates are reported together, and the clean answers passing is the control.
-  It verifies a number *exists* in the retrieved context, **not** that it belongs to the recipe
-  being discussed — misattribution would pass.
+- **The guardrail catches 147/170 injected fabrications (86.5%, Wilson 80.5–90.8%) across nine
+  error classes, with 0 genuine false positives on 20 unmodified answers.** Misattribution and
+  division-by-servings are both caught 100%. A previous version of this line claimed 36/36 =
+  100%; that figure was a **tautology** — the harness discarded an injection using the same
+  predicate it then used to decide the injection was caught, so it could only ever print 100%.
+  On the honest denominator the old rule caught **40%**. See [§16](docs/er_metrics.md).
 - **Latency misses the <5s target**: 5.3s median to first token (p90 8.2s), 7–12s to a complete
   answer. Both model calls already run at minimum effort with thinking off; retrieval itself is
   15–38ms. Streaming took the perceived wait from 13.4s to 5.3s.
-- **The dietary tags were rebuilt on USDA's own 25 food groups as an allowlist**, after Phase 4's
-  recipe titles exposed a "Meat Loaf" tagged vegetarian (`hamburger` → *BURGER KING, Hamburger*,
-  which contains no meat word). The Phase-3 leak test had reported zero leaks because it used the
-  same substring method as the predicate it was testing. Falsely-tagged recipes: vegetarian
-  13 → 5, vegan 9 → 4, gluten-free 329 tagged → 63.
+- **The dietary tags are decided per entity, by classifying all 8,187 USDA foods** for
+  vegetarian / vegan / gluten-free / unknown into `silver.entity_dietary_flags`; a tag requires
+  *every* ingredient to qualify, and `unknown` disqualifies. Two earlier rules — a name denylist,
+  then a food-group allowlist — both failed the same way, because both were proxies for a
+  property of the food. The allowlist still left **30/572 vegetarian (5.2%) and 16/134 vegan
+  (11.9%)** falsely tagged by entity inspection, six and four times the published figure; two
+  recipes tagged *vegan* were a ribs recipe and a cocktail-wieners recipe. Counts are now
+  vegetarian **418**, vegan **61**, gluten-free **179**, with 0 flesh-group entities and 0
+  non-qualifying entities inside any tagged recipe.
+
+- **The dietary safety assertions run inside the gate**, as dbt tests, so a false tag blocks the
+  publish. Watched blocking: with the safeguards removed they fail on 371 and 83 rows and
+  `dbt build` errors. They previously lived only in pytest, where three mutations to
+  `recipe_tags.sql` — including adding `'Beef Products'` to the vegetarian allowlist — left all
+  520 Python tests green.
 - **`nutrition_coverage = 1.0` does not mean the ingredient list is complete.** The corpus ships
   truncated recipes — "Pickled Bologna" lists vinegar, sugar, salt and pickling spice and no
   bologna. The pipeline is faithful; the source is short. A directions-based veto now blocks a

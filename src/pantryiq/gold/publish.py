@@ -53,6 +53,10 @@ SOURCE_TABLES = (
     "silver.usda_portions",
     "silver.recipe_servings",
     "silver.recipe_meta",
+    # The two the dietary tags rest on. Both were missing from the vintage record while being
+    # load-bearing for the project's highest-consequence claim.
+    "silver.usda_food_categories",
+    "silver.entity_dietary_flags",
 )
 
 
@@ -70,9 +74,19 @@ def build_staging(db_path: Path | str = DEFAULT_DB) -> None:
 
 
 def _git_sha() -> str:
+    """The commit this build came from, marked `-dirty` when the tree does not match it.
+
+    Without the suffix the stamp names a commit that cannot have produced the data: the published
+    tags were allowlist output while `gold.pipeline_run.git_sha` pointed at a commit whose
+    `recipe_tags.sql` still held the old denylist. A provenance record that can be wrong about
+    provenance is worse than none, because it is trusted.
+    """
     try:
-        return subprocess.run(["git", "rev-parse", "--short", "HEAD"],
-                              capture_output=True, text=True, check=True).stdout.strip()
+        sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain"],
+                               capture_output=True, text=True, check=True).stdout.strip()
+        return f"{sha}-dirty" if dirty else sha
     except Exception:
         return "unknown"
 

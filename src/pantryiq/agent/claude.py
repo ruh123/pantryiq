@@ -79,7 +79,10 @@ def text_of(response) -> str:
     `null` even on a refusal.
     """
     if response.stop_reason == "refusal":
-        raise Refused("Claude declined this request and the fallback chain declined too")
+        # Not "the fallback chain declined too": only `generate.py` opts into `fallbacks`, so
+        # from `parse` or `explain` there is no chain, and claiming one misdirects whoever
+        # debugs the first real decline.
+        raise Refused(f"Claude declined this request (stop_reason={response.stop_reason!r})")
     blocks = [block.text for block in response.content if block.type == "text"]
     if not blocks:
         raise Refused(f"no text in the response (stop_reason={response.stop_reason!r})")

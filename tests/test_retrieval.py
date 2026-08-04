@@ -196,3 +196,24 @@ def test_patterns_are_bound_as_constants_rather_than_joined_as_a_column():
     elapsed_ms = (time.perf_counter() - started) * 1000
 
     assert elapsed_ms < 250, f"retrieval took {elapsed_ms:.0f} ms — is the pattern a column again?"
+
+
+def test_a_recipe_sitting_exactly_on_the_coverage_bar_is_kept(db):
+    """`>=` vs `>` survived the mutation sweep because no fixture row sat on the bar. On the real
+    export 566 of the 3,256 eligible recipes are at exactly 0.8, so the off-by-one would remove
+    17.4% of everything the agent can answer from, silently."""
+    found = ids(retrieve(PantryQuery(pantry=("egg",), min_coverage=0.9), db))
+
+    assert "r5" in found, "a recipe at exactly min_coverage was excluded"
+
+
+def test_a_recipe_sitting_exactly_on_a_stated_kcal_bound_is_kept(db):
+    """Same shape: "under 500 calories" includes a 500-calorie recipe."""
+    exact = retrieve(PantryQuery(pantry=("egg",), max_kcal=800, min_coverage=0.0), db)
+
+    assert "r5" in ids(exact), "a recipe at exactly max_kcal was excluded"
+
+
+def test_the_limit_is_respected_exactly(db):
+    """`LIMIT ?` -> `LIMIT ? + 1` survived: no test constrained how many rows come back."""
+    assert len(retrieve(PantryQuery(pantry=("egg",), min_coverage=0.0, limit=2), db)) == 2

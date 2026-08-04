@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from pantryiq.agent.claude import get_client  # noqa: E402
 from pantryiq.agent.context import AnswerContext, RecipeFact, build  # noqa: E402
 from pantryiq.agent.generate import answer  # noqa: E402
-from pantryiq.agent.guardrail import check, extract_numbers, permitted  # noqa: E402
+from pantryiq.agent.guardrail import check, extract_numbers  # noqa: E402
 from pantryiq.agent.parse import parse  # noqa: E402
 from pantryiq.agent.retrieval import PantryQuery  # noqa: E402
 from pantryiq.er.relabel import wilson  # noqa: E402
@@ -114,7 +114,10 @@ def rebuild_context(payload: dict) -> AnswerContext:
                       "matched": tuple(item["matched"]), "missing": tuple(item["missing"]),
                       "tags": tuple(item["tags"])})
         for item in payload["recipes"])
-    return AnswerContext(question=payload["question"], query=query, recipes=recipes)
+    return AnswerContext(question=payload["question"], query=query, recipes=recipes,
+                         computed=tuple((label, value)
+                                        for label, value in payload.get("computed") or []),
+                         identifiers=tuple(payload.get("identifiers") or ()))
 
 
 # --------------------------------------------------------------- the mutations
@@ -166,12 +169,59 @@ def plausible_round_number(text: str, context: AnswerContext, rng) -> tuple[str,
     return text + f" Expect roughly {int(value):,} calories.", value
 
 
+def misattribute(text: str, context: AnswerContext, rng) -> tuple[str, float] | None:
+    """Attach one recipe's real total to a different recipe by name.
+
+    Every number in the result is real. The previous guardrail accepted all 20 constructions of
+    this; it is the reason `check` now scopes by recipe.
+    """
+    named = [r for r in context.recipes if r.title and r.total_kcal]
+    if len(named) < 2:
+        return None
+    victim, source = rng.sample(named, 2)
+    return (text + f" {victim.title} comes to about {source.total_kcal:,} kcal for the whole "
+            f"dish ({source.counted_ingredients} of {source.ingredient_count} weighed).",
+            float(source.total_kcal))
+
+
+def whole_dollar_cost(text: str, context: AnswerContext, rng) -> tuple[str, float] | None:
+    """A round invented price. `invent_a_cost` draws two decimals and essentially never produces
+    an integer, so the old set could not reach the case where a small whole number is also a
+    plausible list marker."""
+    value = float(rng.choice([2, 3, 5, 6, 9, 12]))
+    return text + f" You can put this together for about ${int(value)}.", value
+
+
+def alternative_serving_phrasing(text: str, context: AnswerContext, rng) -> tuple[str, float] | None:
+    """The same fabrication as `fabricate_servings`, worded around the old unit vocabulary.
+
+    "It makes about 6 servings" was the only phrasing the old set wrote, and the only one the
+    unit denylist recognised. These are the ones that walked straight through it.
+    """
+    value = float(rng.choice([2, 3, 4, 5, 6, 7]))
+    phrasing = rng.choice([f" It serves {int(value)}.",
+                           f" Serves {int(value)} people.",
+                           f" Makes {int(value)} portions.",
+                           f" Cut it into {int(value)} pieces."])
+    return text + phrasing, value
+
+
+def invented_range(text: str, context: AnswerContext, rng) -> tuple[str, float] | None:
+    """A fabricated span. Ranges are split into two numbers, so both ends must be checkable."""
+    low = float(rng.choice([300, 500, 700, 900]))
+    return text + f" Expect {int(low):,}-{int(low + 200):,} calories per serving.", low
+
+
 MUTATIONS = (
     ("perturbed a real figure", perturb_a_real_figure),
     ("invented a cost", invent_a_cost),
     ("fabricated a serving count", fabricate_servings),
     ("divided total by servings", divide_by_servings),
     ("plausible absent number", plausible_round_number),
+    ("misattributed to another recipe", misattribute),
+    ("whole-dollar invented cost", whole_dollar_cost),
+    ("serving count, reworded", alternative_serving_phrasing),
+    ("invented range", invented_range),
 )
 
 
@@ -195,9 +245,19 @@ def main() -> None:
         else:
             clean_fail.append((record["question"], verdict.unsupported))
 
-    # ---- the catch rate: one injected error at a time
-    caught, missed, discarded = 0, [], 0
-    by_class: dict[str, list[int]] = {label: [0, 0] for label, _ in MUTATIONS}  # [tested, discarded]
+    # ---- the catch rate, on EVERY injection
+    #
+    # The previous version discarded an injection when `permitted()` accepted it, then counted it
+    # caught when `check()` — the same predicate — rejected it. Those are complementary halves of
+    # one function, so the statistic agreed with itself on 90 of 90 cases and could only ever
+    # report 100%. An adversary built to always defeat the guardrail scored 100% through it too.
+    #
+    # The fix is not a better discard rule, it is no discard rule: an injected number is a
+    # fabrication BY CONSTRUCTION, because this script put it there. Whether it happens to
+    # collide with some other real value explains *why* the guardrail misses, and is reported —
+    # but it is not grounds for removing the case from the denominator.
+    caught, missed, collisions = 0, [], 0
+    by_class: dict[str, list[int]] = {label: [0, 0, 0] for label, _ in MUTATIONS}  # n, caught, collided
     for record in records:
         context = rebuild_context(record["context"])
         allowed = context.numbers()
@@ -207,16 +267,12 @@ def main() -> None:
                 continue
             mutated, injected = result
             by_class[label][0] += 1
-            # A mutation that lands on a legitimate value is not a fabrication. Counting it
-            # would measure this script rather than the guardrail. Every injection is written as
-            # a quantified claim ("6 servings", "$4.25"), so it is judged by the same strict rule
-            # the guardrail applies to one — not by the looser enumeration allowance.
-            if permitted(injected, allowed, max(len(context.recipes), 1), quantified=True):
-                discarded += 1
-                by_class[label][1] += 1
-                continue
+            if injected in allowed:
+                collisions += 1
+                by_class[label][2] += 1
             if not check(mutated, context).passed:
                 caught += 1
+                by_class[label][1] += 1
             else:
                 missed.append((label, injected, record["question"]))
 
@@ -236,25 +292,24 @@ def main() -> None:
     print(f"  FALSE-POSITIVE RATE      : {len(clean_fail)}/{len(records)} = "
           f"{100 * len(clean_fail) / len(records):.1f}%  "
           f"(95% Wilson {100 * fp_low:.1f}-{100 * fp_high:.1f}%)")
-    print(f"  mutations discarded      : {discarded}/{discarded + total_mutations} "
-          f"({100 * discarded / (discarded + total_mutations):.0f}%) — see the note below")
+    print(f"  of which collided        : {collisions}/{total_mutations} "
+          f"({100 * collisions / total_mutations:.0f}%) with a real value elsewhere in context")
 
-    print("\n  by injected error class          counted  discarded  result")
+    print("\n  by injected error class            n   caught   collided   rate")
     for label, _ in MUTATIONS:
-        tested, skipped = by_class[label]
-        class_missed = sum(1 for entry in missed if entry[0] == label)
-        print(f"    {label:30} {tested - skipped:5}  {skipped:9}  "
-              f"{'all caught' if not class_missed else f'{class_missed} MISSED'}")
+        n, hits, collided = by_class[label]
+        if not n:
+            continue
+        low, high = wilson(hits, n)
+        print(f"    {label:32} {n:3} {hits:8} {collided:10}   "
+              f"{100 * hits / n:5.1f}%  ({100 * low:.0f}-{100 * high:.0f}%)")
 
-    print(f"\n  WHAT THE DISCARD RATE MEANS. {100 * discarded / (discarded + total_mutations):.0f}% "
-          "of injected numbers coincided with some real")
-    print("  value in the same context, so they are not fabrications and cannot be counted as")
-    print("  misses. With 8 recipes the allowed set holds ~90 values, and small integers are")
-    print("  especially dense — ingredient counts, servings and match counts all live in 1-20.")
-    print("  The honest limitation this exposes: the guardrail verifies a number EXISTS in the")
-    print("  context, not that it belongs to the recipe being discussed. Quoting one recipe's")
-    print("  calories while naming another would pass. That is misattribution, not fabrication,")
-    print("  and closing it needs per-recipe scoping this does not attempt.")
+    print("\n  EVERY injection counts. An injected number is a fabrication because this script")
+    print("  put it there — whether it collides with some other real value explains why the")
+    print("  guardrail misses, and is reported above, but it is not grounds for deleting the")
+    print("  case from the denominator. The previous version discarded on exactly that basis,")
+    print("  using the same predicate `check` uses to decide, which made the rate a tautology")
+    print("  that could only ever print 100%.")
 
     if missed:
         print("\n  misses (a fabrication the guardrail allowed):")

@@ -550,6 +550,79 @@ An ops summary with a made-up row count is worse than none at all, because someo
 without the query in front of them. If the drafted summary fails the check, the runbook gets the
 raw facts instead.
 
+### Then we reviewed it all, and found we'd published two wrong numbers
+
+Five independent reviewers went over the finished phase. They found that **both of the headline
+claims were false** — and in both cases the mistake was structural, not arithmetic.
+
+**1. "The guardrail catches 100% of fabrications" could not have said anything else.**
+
+The way we tested it: corrupt an answer, see if the guardrail catches it. But we first *skipped*
+any corruption the guardrail would allow, on the grounds that it "wasn't really a fabrication" —
+using the same piece of code that then decided whether it was caught. So the test agreed with
+itself 90 times out of 90. A guardrail that catches nothing would have scored 100% too.
+
+Counting every corruption honestly, the real figure was **40%**. The reason: our "close enough"
+tolerance was ±10%, borrowed from a different part of the project where it means "these two foods
+are nutritionally interchangeable". Applied to quoting accuracy, it accepted **79% of all possible
+numbers**. And it wasn't buying anything: of 346 numbers in 20 real answers, 345 were exact
+matches and one was a bullet point. Not one needed the tolerance.
+
+**Rebuilt**, with three changes:
+- Numbers are now checked against **the recipe the sentence is about**, not the whole answer. The
+  old version accepted "Favorite Chicken is 1,968 calories" when 1,968 belonged to a different
+  dish — an error we measured at typically 133% and up to 1,105% wrong.
+- Counts and measurements are separated properly. The old rule rejected "about 13 g of protein"
+  against a stored 13.1, on **half** of all such sentences.
+- Its own tolerance (1%), not a borrowed one.
+
+Result: **86.5% caught** (up from 40%), misattribution 100% caught, and no genuine false alarms.
+The one answer it flagged turned out to be a **real** model error — Claude wrote *"Cost is at
+least $2.22 — sorry, at least $3.65"*, inventing a number and correcting itself, and the guardrail
+caught the invented one. That's the first time it has ever caught a genuine mistake in the wild.
+
+**2. The dietary tags were still wrong, six times more often than we said.**
+
+We'd reported 13 falsely-tagged vegetarian recipes. Checking the actual ingredients rather than
+the recipe names, it was **30 out of 572** — and 16 of 134 vegan. Two recipes tagged *vegan* were
+a ribs recipe and a cocktail-wieners recipe.
+
+Why: Worcestershire sauce contains anchovies. Marshmallows contain gelatin. Neither has a meat
+word in its name, and both sit in food groups we'd allowed. We'd fixed the rule twice and both
+times fixed a *proxy* for the real question rather than the question itself.
+
+**So we asked the question directly.** Every one of the 8,187 USDA foods is now individually
+classified — is this vegetarian? vegan? gluten-free? — and a recipe only gets a tag if *every*
+ingredient qualifies. Anything uncertain counts as "no". A food nobody has ever looked at gets
+classified the same way as one that has, which is the property the previous two rules lacked.
+
+Worth recording: our hand-written list of "correct answers" for testing the classifier was itself
+wrong in four places — all in the unsafe direction. It claimed Worcestershire sauce is
+gluten-free (it contains barley malt vinegar) and russian dressing is vegetarian (it usually
+contains Worcestershire, hence anchovy). **The classifier corrected us.**
+
+**And the safety checks now actually block.** They used to live only in the Python tests, which
+run on a developer's machine — meaning a false "vegan" label could be built and published with
+nothing stopping it. They're now part of the build gate. We proved it by deliberately breaking
+the rule: the build failed on 371 bad rows and refused to publish.
+
+### Two more checks that couldn't fire
+
+The review also caught a pattern we've now hit three times: a check written, never watched, and
+silently incapable of firing.
+
+- A gluten check used a SQL operator where `%` means a literal percent sign rather than "anything"
+  — so it matched nothing, ever.
+- The mutation test that measures whether our tests are any good was itself broken: it forgot to
+  copy one directory, so every run failed for the same unrelated reason and reported success.
+
+Running the fixed version: **62 deliberate bugs introduced, 32 slipped past our tests.** The worst
+were two functions with *no tests at all* — including the one that decides whether a rejected
+answer gets shown to the user. That one was genuinely broken: it recorded a clean answer in the
+log alongside a "failed" verdict and numbers that appeared nowhere in it.
+
+Test count is now **556**, up from 520.
+
 ### What we can now do
 
 ```
@@ -557,6 +630,7 @@ uv run python -m pantryiq.agent "what can I make with chicken, rice and onions?"
 uv run python -m pantryiq.agent.planner
 uv run python scripts/measure_guardrail.py
 uv run python -m pantryiq.agent.explain          # runbook entries for failures
+uv run python -m pantryiq.er.dietary --check     # the dietary classifier's known answers
 ```
 
 Every question is logged — the question, what was retrieved, the answer, and the guardrail's

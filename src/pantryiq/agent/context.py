@@ -36,7 +36,25 @@ import json
 from dataclasses import dataclass
 from html import escape
 
+
 from pantryiq.agent.retrieval import Candidate, PantryQuery, retrieve
+
+
+def safe(value: str) -> str:
+    """Escape text that reaches the prompt, for element CONTENT.
+
+    `quote=False` because `html.escape` otherwise turns an apostrophe into `&#x27;` — and 887 of
+    15,000 titles contain one, so the model was being shown `Mom&#x27;S Pie` and a phantom 27
+    entered the answer as an unquotable number.
+
+    Applied to every interpolated field, not only the title. `missing` is
+    `set(query.pantry) - set(matched)`, which is the user's own words: `_SAFE_TERM` sanitises the
+    term for the REGEX, and `retrieval.py` maps the match back to the raw string, so a pantry
+    term closing `</you_are_missing></recipe>` reached the prompt verbatim. The docstring above
+    claimed untrusted text "arrives as data"; that was true of the title and false of its
+    siblings until this was applied to all of them.
+    """
+    return escape(value, quote=False)
 
 # How each quantity is rounded for display, and therefore how it is stored. Money gets 2 places;
 # energy and mass are quoted whole because a tenth of a kcal is noise against 22% gram error.
@@ -104,20 +122,34 @@ class RecipeFact:
             tags=candidate.tags,
         )
 
-    def numbers(self) -> set[float]:
-        """Every numeric value this recipe entitles an answer to state.
+    def exact_numbers(self) -> set[float]:
+        """Values that must be quoted exactly — counts of things.
 
-        Counts are included alongside measurements: an answer saying "uses 3 of your 4
-        ingredients" is quoting `len(matched)` and `len(matched) + len(missing)`, and a guardrail
-        that only knew about nutrition would reject it.
+        Separated from measurements because tolerance means different things for the two. "6 of 5
+        ingredients weighed" must fail however close 6 is to 5, while "about 1,970 kcal" for 1,968
+        is a quotation. The previous rule keyed this off *magnitude* (`EXACT_BELOW = 20`), which
+        conflates a count with a small measurement and rejected "about 13 g of protein" against a
+        stored 13.1 — measured at 51% of rounded sub-20g macro quotations.
         """
         values = {float(self.ingredient_count), float(self.counted_ingredients),
-                  float(len(self.matched)), float(len(self.missing)),
-                  float(self.nutrition_coverage), float(self.data_trust_score),
+                  float(len(self.matched)), float(len(self.missing))}
+        if self.servings is not None:
+            values.add(float(self.servings))
+        # `cost_coverage` is `costed_ingredients / ingredient_count` (recipe_nutrition.sql:115),
+        # so the count it came from is a fact, not a derivation. Answers state it that way —
+        # "at least $5.43 with 3 of 5 ingredients priced" — and without this the guardrail
+        # rejected a true sentence because only the fraction was in the ledger.
+        if self.cost_coverage is not None:
+            values.add(float(round(self.cost_coverage * self.ingredient_count)))
+        return values
+
+    def measured_numbers(self) -> set[float]:
+        """Values that may be quoted within tolerance — things that were weighed or priced."""
+        values = {float(self.nutrition_coverage), float(self.data_trust_score),
                   # Coverage is quoted as a percentage at least as often as a fraction.
                   round(self.nutrition_coverage * 100, 1)}
         for field in ("total_kcal", "kcal_per_100g", "total_grams", "protein_g", "fat_g",
-                      "carb_g", "servings", "kcal_per_serving", "cost_total_usd"):
+                      "carb_g", "kcal_per_serving", "cost_total_usd"):
             value = getattr(self, field)
             if value is not None:
                 values.add(float(value))
@@ -125,6 +157,10 @@ class RecipeFact:
             values.add(float(self.cost_coverage))
             values.add(round(self.cost_coverage * 100, 1))
         return values
+
+    def numbers(self) -> set[float]:
+        """Everything this recipe entitles an answer to state, both kinds together."""
+        return self.exact_numbers() | self.measured_numbers()
 
 
 @dataclass(frozen=True)
@@ -146,18 +182,33 @@ class AnswerContext:
     # read as claims: `kcal_per_100g` was rejected as a fabricated "100".
     identifiers: tuple[str, ...] = ()
 
-    def numbers(self) -> set[float]:
-        """The union of every quotable value, plus the constraints the user themselves stated.
+    def global_exact(self) -> set[float]:
+        """Counts that belong to the answer as a whole rather than to one recipe."""
+        return {float(len(self.recipes))}
 
-        The user's own numbers belong here: an answer to "under 500 calories" that says "all of
-        these are under 500" is restating the question, not inventing a measurement.
+    def global_measured(self) -> set[float]:
+        """Answer-level measurements: the user's own constraints, and code-computed totals.
+
+        The user's numbers belong here: an answer to "under 500 calories" that says "all of these
+        are under 500" is restating the question, not inventing a measurement.
         """
-        values = {float(len(self.recipes))}
+        values = set()
         for constraint in (self.query.max_kcal, self.query.min_kcal, self.query.max_cost_usd):
             if constraint is not None:
                 values.add(float(constraint))
         for _, value in self.computed:
             values.add(float(value))
+        return values
+
+    def numbers(self) -> set[float]:
+        """Every quotable value anywhere in the context, ignoring which recipe owns it.
+
+        Kept for reporting and for callers that only need the ledger. **The guardrail does not
+        use this** — checking against the union is what let an answer quote one recipe's calories
+        while naming another, measured at a median 133% error and, in 7 of 20 contexts, silently
+        upgrading an incomplete recipe to full coverage. See `guardrail.check`.
+        """
+        values = self.global_exact() | self.global_measured()
         for recipe in self.recipes:
             values |= recipe.numbers()
         return values
@@ -191,16 +242,17 @@ class AnswerContext:
         """
         blocks = []
         for recipe in self.recipes:
-            def show(value, unit: str = "", *, item=recipe) -> str:
-                return "unknown" if value is None else f"{value:,}{unit}"
+            def show(value) -> str:
+                return "unknown" if value is None else f"{value:,}"
 
             blocks.append("\n".join([
                 "<recipe>",
-                f"  <title>{escape(recipe.title or 'untitled')}</title>",
-                f"  <id>{recipe.recipe_id}</id>",
-                f"  <uses_from_your_pantry>{', '.join(recipe.matched) or 'none'}"
+                f"  <title>{safe(recipe.title or 'untitled')}</title>",
+                f"  <id>{safe(recipe.recipe_id)}</id>",
+                f"  <uses_from_your_pantry>{safe(', '.join(recipe.matched)) or 'none'}"
                 "</uses_from_your_pantry>",
-                f"  <you_are_missing>{', '.join(recipe.missing) or 'nothing'}</you_are_missing>",
+                f"  <you_are_missing>{safe(', '.join(recipe.missing)) or 'nothing'}"
+                "</you_are_missing>",
                 f"  <ingredients_total>{recipe.ingredient_count}</ingredients_total>",
                 f"  <nutrition_coverage>{recipe.nutrition_coverage} "
                 f"({recipe.counted_ingredients} of {recipe.ingredient_count} ingredients weighed)"
@@ -216,7 +268,7 @@ class AnswerContext:
                 f"  <cost_total_usd>{show(recipe.cost_total_usd)}</cost_total_usd>",
                 f"  <cost_coverage>{show(recipe.cost_coverage)}</cost_coverage>",
                 f"  <data_trust_score>{recipe.data_trust_score}</data_trust_score>",
-                f"  <dietary_tags>{', '.join(recipe.tags) or 'none'}</dietary_tags>",
+                f"  <dietary_tags>{safe(', '.join(recipe.tags)) or 'none'}</dietary_tags>",
                 "</recipe>",
             ]))
         body = "\n".join(blocks) or "<no_recipes_found/>"
@@ -226,11 +278,20 @@ class AnswerContext:
         return body
 
 
+# Field names `to_prompt` shows the model. A model quoting `kcal_per_100g` back is quoting the
+# context, and the 100 in it was being read as a fabricated figure — the same class as a recipe
+# id. `identifiers` existed for this and was wired up only in `explain.py`.
+PROMPT_FIELD_NAMES = ("kcal_per_100g", "cost_total_usd", "total_kcal", "total_grams",
+                      "kcal_per_serving", "nutrition_coverage", "cost_coverage",
+                      "data_trust_score", "protein_g", "fat_g", "carb_g")
+
+
 def build(question: str, query: PantryQuery, db_path=None) -> AnswerContext:
     """Retrieve for `query` and package the result. The only entry point generation needs."""
     candidates = retrieve(query) if db_path is None else retrieve(query, db_path)
     return AnswerContext(question=question, query=query,
-                         recipes=tuple(RecipeFact.from_candidate(c) for c in candidates))
+                         recipes=tuple(RecipeFact.from_candidate(c) for c in candidates),
+                         identifiers=PROMPT_FIELD_NAMES)
 
 
 def main() -> None:

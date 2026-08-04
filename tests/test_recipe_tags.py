@@ -57,30 +57,41 @@ def test_the_two_recipes_found_by_inspection_are_no_longer_tagged(con):
         assert tags == [], f"{recipe_id} is tagged {tags} — it is a meat loaf"
 
 
-def test_an_unknown_food_group_disqualifies_rather_than_being_ignored(con):
-    """1.0% of foods carry no USDA category. Under an allowlist an unknown must fail, and SQL
-    makes that easy to get wrong: `bool_and` skips NULLs, so an uncategorised ingredient would
-    silently not count against the recipe."""
+def test_an_unknown_classification_disqualifies_rather_than_being_ignored(con):
+    """705 of 8,187 entities are genuinely unclassifiable from their description. Under a rule
+    that requires every ingredient to qualify, `unknown` must fail exactly like `no` — and SQL
+    makes that easy to get wrong, because `bool_and` SKIPS nulls rather than failing on them."""
+    for tag, column in (("vegetarian", "is_vegetarian"), ("vegan", "is_vegan"),
+                        ("gluten-free", "is_gluten_free")):
+        leaked = con.execute(f"""
+            SELECT count(*) FROM gold.recipe_tags t
+            JOIN gold.recipe_ingredients_resolved r USING (recipe_id)
+            JOIN gold.canonical_ingredients ci ON ci.canonical_id = r.canonical_id
+            WHERE t.tag = ? AND coalesce(ci.{column}, 'unknown') <> 'yes'
+        """, [tag]).fetchone()[0]
+
+        assert leaked == 0, f"{tag} admitted a non-qualifying entity"
+
+
+def test_gluten_free_is_judged_per_entity_not_per_food_group(con):
+    """The group allowlist excluded whole categories, which was both too coarse and too strict:
+    it dropped gluten-free recipes for containing rice or cornmeal, and admitted meatless
+    analogues (wheat gluten) because they are filed under Legumes.
+
+    The property now is per entity — and the check that matters is the recipe's OWN words, since
+    "Icebox Cookies" writes `flour` and it resolved to *Millet flour*, which is genuinely
+    gluten-free as an entity while the recipe plainly is not."""
     leaked = con.execute("""
-        SELECT count(*) FROM gold.recipe_tags t
+        SELECT count(DISTINCT t.recipe_id) FROM gold.recipe_tags t
         JOIN gold.recipe_ingredients_resolved r USING (recipe_id)
-        JOIN gold.canonical_ingredients ci ON ci.canonical_id = r.canonical_id
-        WHERE t.tag IN ('vegetarian', 'vegan') AND ci.food_category IS NULL
+        WHERE t.tag = 'gluten-free'
+          AND regexp_matches(lower(r.normalized_text),
+              '\\b(flour|bread|oats|wheat|barley|rye|pasta|noodle|macaroni|graham|biscuit)\\w*\\b')
+          AND NOT regexp_matches(lower(r.normalized_text),
+              '\\b(rice|corn|almond|coconut|millet|chestnut|arrowroot|tapioca|buckwheat|potato)\\w*\\b')
     """).fetchone()[0]
 
     assert leaked == 0
-
-
-def test_gluten_free_excludes_the_grain_food_groups(con):
-    leaked = con.execute("""
-        SELECT DISTINCT ci.food_category FROM gold.recipe_tags t
-        JOIN gold.recipe_ingredients_resolved r USING (recipe_id)
-        JOIN gold.canonical_ingredients ci ON ci.canonical_id = r.canonical_id
-        WHERE t.tag = 'gluten-free' AND ci.food_category IN (
-            'Baked Products', 'Cereal Grains and Pasta', 'Breakfast Cereals')
-    """).fetchall()
-
-    assert leaked == []
 
 
 def test_vegan_admits_no_dairy_or_egg(con):
@@ -136,7 +147,8 @@ def test_a_truncated_ingredient_list_is_vetoed_by_the_directions():
     finally:
         con.close()
 
-    assert tags == [], "Pickled Bologna is tagged despite its method naming bologna"
+    assert "vegetarian" not in tags and "vegan" not in tags, \
+        "Pickled Bologna is tagged despite its method naming bologna"
 
 
 def test_the_directions_signal_can_actually_fire():

@@ -16,6 +16,9 @@ select
     foods.canonical_name,
     foods.category,
     groups.food_category,
+    diet.is_vegetarian,
+    diet.is_vegan,
+    diet.is_gluten_free,
     foods.kcal_per_100g,
     foods.protein_g         as protein_g_per_100g,
     foods.fat_g             as fat_g_per_100g,
@@ -23,3 +26,5 @@ select
 from {{ source('silver', 'usda_foods') }} as foods
 left join {{ source('silver', 'usda_food_categories') }} as groups
     on groups.fdc_id = foods.fdc_id
+left join {{ source('silver', 'entity_dietary_flags') }} as diet
+    on diet.fdc_id = foods.fdc_id

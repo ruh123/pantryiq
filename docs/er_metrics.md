@@ -1112,13 +1112,23 @@ check. So the phase's headline is not the answers — it is the guardrail's two 
 
 ### The guardrail, measured
 
+> ⚠️ **RETRACTED — the numbers in this subsection were wrong, and wrong by construction.** The
+> catch rate below was a **tautology**: the harness discarded an injection when `permitted()`
+> accepted it, then counted it caught when `check()` — the same predicate — rejected it. Those
+> are complementary halves of one function; they agreed on 90 of 90 injections and the statistic
+> could only ever print 100%. An adversary designed to always defeat the guardrail scored 100%
+> through it as well. On the honest denominator the rule below caught **40%**, because a ±10%
+> tolerance around ~81 values covered **79% of the number line**. See **§16** for the rebuild and
+> the corrected measurement. The original text is kept so the error is legible rather than tidied
+> away.
+
 `scripts/measure_guardrail.py`: 20 real questions through parse → retrieve → generate, then one
 injected numeric error at a time.
 
-| | value | 95% Wilson |
+| | ~~value~~ **retracted** | ~~95% Wilson~~ |
 |---|---|---|
-| **catch rate** | **36/36 = 100%** | 90.4 – 100% |
-| **false-positive rate** | **0/20 = 0%** | 0.0 – 16.1% |
+| ~~catch rate~~ | ~~36/36 = 100%~~ → **36/90 = 40%** | 30.5 – 50.3% |
+| ~~false-positive rate~~ | ~~0/20 = 0%~~ (in-sample, after two fixes fitted on the same 20) | 0.0 – 16.1% |
 | numeric claims checked | 346 (17.3 per answer) | |
 
 Both numbers or neither. A guardrail that rejects everything catches 100% of fabrications and is
@@ -1207,6 +1217,14 @@ broth.
 | vegan | 147 | 139 | **134** | 9 → **4** |
 | gluten-free | 329 | 68 | **63** | ? → **1** |
 
+> ⚠️ **The "13 → 5 / 9 → 4" figures are wrong twice over.** They are *title-leak* counts, not
+> false-tag counts, and they were produced by a regex that exists nowhere in the repo — the one
+> pinned in `tests/test_recipe_tags.py` measures 8 → 1, so `assert leaked <= 5` had five times
+> the slack it appeared to. Measured properly, by inspecting the resolved entities, the group
+> allowlist left **30 of 572 vegetarian (5.2%) and 16 of 134 vegan (11.9%)** falsely tagged — six
+> and four times what was published. Two recipes tagged **vegan** were a ribs recipe and a
+> cocktail-wieners recipe. See **§16**.
+
 ### `coverage = 1.0` does not mean the ingredient list is complete
 
 The residual leaks turned out not to be tag failures at all. **The corpus ships truncated
@@ -1285,3 +1303,174 @@ infers, from the write-audit-publish design, that downstream consumers are readi
 rather than wrong data. **Percentages are precomputed into the ledger** for the same reason as the
 planner's totals: the model will write "2,884 of 9,163 (31.5%)" correctly, and a guardrail holding
 only the two counts would reject a true sentence.
+
+---
+
+## §16 — The Phase-4 review, and rebuilding what it broke (2026-08-04)
+
+Five reviewers were fanned out over the finished phase. They found that **both of Phase 4's
+headline claims were false**, and in both cases the error was structural rather than arithmetic:
+a statistic that could only report one value, and a rule whose failures were unbounded.
+
+### 16.1 The catch rate was a tautology
+
+`measure_guardrail.py:214` discarded an injection when `permitted(injected, …)` returned true;
+line 218 counted it caught when `check()` failed — and `check` decides by calling that same
+`permitted` against the same allowed set. Discard and catch were complementary halves of one
+predicate.
+
+```
+cases where (caught) == (not permitted(injected)):  90/90
+disagreements — i.e. independent information:        0
+```
+
+Run through that harness, an adversary that *always* defeats the guardrail also reports 100%.
+The only thing that could ever drive it below 100% was a failure of the number *extractor*.
+
+**The fix is not a better discard rule, it is no discard rule.** An injected number is a
+fabrication because the script put it there; whether it collides with some other real value
+explains *why* the guardrail misses and is now reported beside the rate, not subtracted from it.
+
+### 16.2 Why the old rule caught 40%
+
+`error(v, c, floor=0) < 0.10` is symmetric on the max, so each allowed value claimed a **21%-wide**
+interval rather than 10%. Over a median 81 values per context that covered:
+
+| measure | median | range over 20 contexts |
+|---|---|---|
+| linear coverage of [20, 3000] | **78.9%** | 38.4 – 95.4% |
+| P(a fabricated calorie figure is accepted) | **78.0%** | 38.1 – 95.6% |
+
+And the tolerance bought nothing: of 346 numeric claims in 20 real answers, **345 were exact
+matches and 1 was a list marker. Zero needed the band.** It came from `er/nutrition.EQUIVALENT`,
+where 0.10 means "two USDA foods are nutritionally interchangeable" — a category error when
+reused as quoting accuracy.
+
+### 16.3 The rebuilt guardrail
+
+Three changes, each closing a measured failure:
+
+1. **Scope is per sentence, not the whole context.** A number is checked against the recipe the
+   sentence is about. Misattribution — every figure real, attached to the wrong dish — was
+   measured at a median **133% error, up to 1,105%**, and in 7 of 20 contexts it also upgraded an
+   incomplete recipe to "6 of 6 ingredients weighed", falsifying the coverage guarantee. A
+   sentence naming two recipes puts both in scope, because "X and Y, at 1,947 and 2,731 kcal
+   respectively" is a correct sentence that section-level scoping rejected.
+2. **Counts are separated from measurements by kind, not magnitude.** `EXACT_BELOW = 20` treated
+   every small number as a count and rejected "about 13 g of protein" against a stored 13.1 —
+   **51% of rounded sub-20g macro quotations**. The old 0% false-positive rate was clean only
+   because those 20 questions quote `total_kcal`, which is always ≥ 20.
+3. **List markers are positional, not vocabulary.** The old rule allowed any small integer unless
+   a word from a fixed unit list followed it — the same denylist anti-pattern this project
+   condemns in the dietary tags — and let through "It serves 2", "Makes 2 portions", "$2 total".
+
+| | before | after |
+|---|---|---|
+| **catch rate, all injections** | 36/90 = **40.0%** | **147/170 = 86.5%** (Wilson 80.5–90.8%) |
+| misattribution | 0/20 caught | **20/20** |
+| division by servings | 1/10 | **10/10** |
+| false positives | 2/20 (in-sample 0/20 after fitting) | **1/20 flagged, 0 genuine** |
+| acceptance coverage | 79% of the number line | 1% band, per-sentence scope |
+
+**The single flagged answer is a true positive.** The model wrote *"Cost is at least $2.22 —
+sorry, at least $3.65"*, fabricating a figure and correcting itself mid-sentence; the guardrail
+caught the wrong one. This is the project's **first recorded true positive on natural model
+output** — every previous firing had been a false positive.
+
+Per class, the weakest are now `whole-dollar invented cost` (10/20) and `serving count, reworded`
+(14/20). Both fail for the same reason: small integers are dense in the allowed set — 38% of all
+injections collide with some real value — and `costed_ingredients` had to be added to the ledger
+because answers legitimately say "3 of 5 ingredients priced".
+
+Four bugs were found *by* the rebuilt rule and fixed: `"Potato Casserole"` matching inside
+`"Hash Brown Potato Casserole"` and splitting one recipe's section in two; nested parentheticals
+(`Honey Oatmeal Drop Cookies(Makes 22 (2-Inch) Cookies)`) never matching; digits inside a title
+being read as claims; and identifier stripping running *after* range-splitting.
+
+### 16.4 The dietary tags, rebuilt on per-entity classification
+
+The group allowlist was the second proxy to fail. Measured by entity inspection rather than by
+titles, it left **30/572 vegetarian (5.2%) and 16/134 vegan (11.9%)** falsely tagged. Causes:
+Worcestershire sauce (anchovies — 12 vegetarian, 6 vegan), marshmallows (gelatin — 17 and 4), and
+a directions veto ending `)\b` instead of `)\w*\b`, so **no inflected form matched at all** —
+`hamburger`, `sausages`, `steaks`, `chickens` all missed, while the gluten pattern one line below
+had the suffix.
+
+**A patch list fixes the four foods on it.** So the question is now asked directly, once per
+entity: `er/dietary.py` classifies all 8,187 USDA entities as vegetarian / vegan / gluten-free /
+unknown via Claude, into `silver.entity_dietary_flags`, and a tag requires **every** ingredient to
+be `yes`. A food nobody has looked at is classified the same way as one that has.
+
+Definitions are pinned in the module rather than left to the model (cheese counts as vegetarian
+unless the description names animal rennet; oats are `unknown` for gluten because USDA does not
+record certification). 705 of 8,187 entities come back `unknown`, and unknown disqualifies.
+
+**The hand-written regression set was wrong and the classifier corrected it.** Four of thirty
+verdicts in the first draft were mistakes, *all in the unsafe direction* — it claimed
+Worcestershire sauce is gluten-free (barley malt vinegar) and russian dressing vegetarian (it
+commonly contains Worcestershire, hence anchovy). The set now records acceptable *ranges* and
+asserts the property that actually matters unconditionally: **never a wrong `yes`** (0 of 30).
+
+| tag | Phase-3 denylist | group allowlist | **entity classifier** |
+|---|---|---|---|
+| vegetarian | 604 | 572 | **418** |
+| vegan | 147 | 134 | **61** |
+| gluten-free | 329 | 63 | **179** |
+
+Gluten-free *rose* because the group allowlist was too coarse in both directions — it excluded
+whole categories containing gluten-free foods while admitting meatless analogues, which are
+filed under Legumes and made of wheat gluten.
+
+Measured against signals the rule does not read:
+
+- **0** tagged recipes contain an entity in a USDA flesh food group
+- **0** tagged recipes contain an entity classified anything but `yes`
+- **0** gluten-free recipes whose own ingredient lines name unqualified grain
+- title leak: **3/418 vegetarian, 3/61 vegan** — and all three are artifacts of the measurement:
+  "Cucumber Sauce **For** Fish", "Cold Pack Fish" (vinegar and salt) and "Fish Fry Coating Mix"
+  (cornmeal and spices) contain no fish
+
+Three filters are kept alongside the classifier because each catches what the others cannot: the
+coverage gate, a name denylist (the classifier judges the *entity*, and entity resolution is
+67.3% accurate — three recipes containing real chicken, bacon and sausage resolved to the
+*meatless* analogues), and the directions veto for truncated ingredient lists.
+
+**A fourth check was dead on arrival and caught by running it.** `has_gluten_line` used
+`SIMILAR TO '%(flour|...)%'`, and DuckDB's `SIMILAR TO` is anchored regex in which `%` is a
+*literal percent sign* — it matched nothing. Rewritten with `regexp_matches` and verified against
+real strings before being trusted. That is the third time in this project a check has been found
+that could not fire.
+
+### 16.5 The safety assertions now run inside the gate
+
+They previously lived only in pytest, which meant they ran on a developer machine against a
+pre-built export and could block nothing — three mutations to `recipe_tags.sql`, including adding
+`'Beef Products'` to the vegetarian allowlist, left all 520 Python tests green because `make test`
+never invokes dbt. Three singular tests now run under `dbt build --target staging`.
+
+**Watched blocking, not asserted:** with the safeguards removed, they failed on 371 and 83 rows,
+`dbt build` errored, and `publish()` never swapped. Restored, all 32 dbt tests pass.
+
+### 16.6 The test suite
+
+A mutation sweep with a proper control — which also **reproduced the previous sweep's bug**: the
+old script copied only `src tests scripts docs pyproject.toml`, omitting `seeds/`, so every run
+died in `test_cost_reference.py` before reaching a Phase-4 test and reported `CAUGHT`
+unconditionally.
+
+**62 mutations, 32 survived (48%).** The most serious: `guarded_answer` and `explain.run()` had
+**no tests at all** — inverting either left all 520 green, and `guarded_answer` was genuinely
+wrong, returning the templated fallback paired with the *rejected retry's* verdict, so the query
+log recorded a clean answer alongside `guardrail_pass=False` and numbers appearing nowhere in it.
+Four tests named a property they did not check, including a trust-tiebreak test that passed with
+trust deleted from the `ORDER BY`.
+
+Suite is now **548 tests**, up from 520.
+
+### 16.7 Latency, unchanged and restated
+
+Opus 5 is retained on both calls by decision. Time to first token is a **median 5.3 s** (p90
+8.2 s) against a <5 s target; retrieval is 15–38 ms and the binding constraint is the parse call,
+which must complete before retrieval can start. Sonnet 5 parses identically in 2,354 ms against
+Opus 5's 3,646 ms and would close the gap — not taken, because model choice is the operator's
+decision rather than a silent optimisation.

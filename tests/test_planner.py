@@ -106,3 +106,25 @@ def test_an_impossible_budget_yields_a_short_week_not_a_repeated_one():
     assert plan.violations() == []
     assert len(plan.recipes) < 7
     assert plan.total_cost <= 3.0
+
+
+def test_a_plan_costing_exactly_the_budget_is_legal():
+    """`>` vs `>=` survived on all four bounds because every fixture sat strictly inside them.
+    A week that spends the budget exactly has not exceeded it."""
+    exact = a_plan(priced("a", 1000, 25.0), priced("b", 1000, 25.0), budget=50.0)
+
+    assert exact.violations() == []
+
+
+def test_a_recipe_at_exactly_the_daily_ceiling_is_legal():
+    assert a_plan(priced("a", 2000, 5.0), ceiling=2000.0).violations() == []
+
+
+@pytest.mark.skipif(not Path("data/pantryiq_gold.duckdb").exists(), reason="export not present")
+def test_the_candidate_pool_includes_a_recipe_at_exactly_the_ceiling():
+    """The pool filter is `total_kcal <= ?`; `<` survived because nothing sat on the boundary."""
+    pool = candidates(2000.0)
+    ceiling_value = max(recipe.total_kcal for recipe in pool)
+
+    assert all(recipe.total_kcal <= 2000.0 for recipe in pool)
+    assert candidates(ceiling_value), "a recipe at exactly the ceiling was excluded"

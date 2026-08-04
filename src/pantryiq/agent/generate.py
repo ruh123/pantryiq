@@ -65,7 +65,10 @@ SYSTEM = (
     "are priced. Never present a partial cost as the price of the dish.\n\n"
     "Be brief and concrete — a short paragraph, or a few recipes with one or two lines each. "
     "Write for a home cook, not a data analyst.\n\n"
-    + injection_paragraph("recipes", "recipe data")
+    + injection_paragraph("recipes", "recipe data") + "\n\n"
+    # The question is fenced on the parse call but was not on this one — the same untrusted text,
+    # re-presented unprotected to the model that writes the answer.
+    + injection_paragraph("user_question", "question")
 )
 
 

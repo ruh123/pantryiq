@@ -1,46 +1,56 @@
--- Dietary tags derived from what a recipe actually resolves to, one row per (recipe, tag).
+-- Dietary tags, one row per (recipe, tag).
 --
--- Tags are stated only for recipes whose ingredients are fully accounted for. A recipe with an
--- unresolved ingredient cannot be called vegan: the thing we could not identify is exactly the
--- thing that might disqualify it. So `nutrition_coverage` must be 1.0 before any tag is emitted —
--- silence is the safe answer.
+-- **A tag requires every ingredient to be classified as qualifying, per entity.** Not a food
+-- group, not a substring of a name — the property itself, decided once per USDA entity by
+-- `er/dietary.py` and stored in `silver.entity_dietary_flags`.
 --
--- **THIS IS AN ALLOWLIST OVER USDA FOOD GROUPS, NOT A DENYLIST OVER NAMES.** The distinction is
--- the whole model. An earlier version tagged a recipe vegetarian when no ingredient's
--- `display_name` matched any of 33 meat substrings, which cannot support a safety claim: every
--- product name nobody anticipated is a silent false positive. Two were found by joining Phase 4's
--- recipe titles against the tags — a signal that did not exist when the predicate was written:
+-- This is the third rule in this position, and the first two failed the same way. Phase 3 asked
+-- "does this food's name contain a meat word"; Phase 4 asked "is this food's USDA group allowed".
+-- Both are PROXIES for a property of the food, and both leaked wherever the proxy and the
+-- property came apart:
 --
---   recipenlg:9231  "Meat Loaf"  vegetarian   `hamburger`  -> "BURGER KING, Hamburger"
---   recipenlg:10493 "Meat Loaf"  gluten-free  `quaker oat` -> "Cereals, QUAKER, MultiGrain Oatmeal"
+--   Sauce, worcestershire      group allowed, no meat word      -> anchovies      (12 veg, 6 vegan)
+--   Candies, marshmallows      group allowed, no meat word      -> gelatin        (17 veg, 4 vegan)
+--   Bacon, meatless            a legume, correctly              -> wheat gluten, not GF
+--   Alcoholic beverage, beer   no gluten word                   -> barley malt
 --
--- Neither string contains a listed token ('%ham,%' is comma-anchored so it will not match
--- `graham`; the gluten list had `oats`, not `oatmeal`). Measured against titles, 13 of 604
--- vegetarian and 9 of 147 vegan recipes named meat in their own title — a lower bound, since it
--- only catches recipes whose title gives them away.
+-- Patching those four fixes those four. The measured false-tag rate under the group allowlist was
+-- 30 of 572 vegetarian (5.2%) and 16 of 134 vegan (11.9%) by entity inspection — six and four
+-- times what the title-based measurement reported. A rule whose failures are unbounded cannot
+-- support a safety claim, so the question is now asked directly and a food nobody has looked at
+-- is classified the same way as one that has.
 --
--- USDA publishes exactly 25 food groups across these 8,187 foods (99.0% carry one). A closed
--- vocabulary can be reasoned about once and audited; an open set of product names cannot. So a
--- tag now requires EVERY ingredient to sit in an allowed group. "Fast Foods" and "Breakfast
--- Cereals" are simply not on the relevant lists, and both failures above decline by construction.
+-- **`unknown` disqualifies, exactly like `no`.** 705 of 8,187 entities are genuinely
+-- unclassifiable from their description ('Sauce, unspecified'). Silence is the safe answer.
 --
--- **The name patterns are kept as a SECOND filter, not a replacement.** Groups are coarse and
--- some of them mix: "Fats and Oils" holds lard and beef tallow, "Soups, Sauces, and Gravies"
--- holds beef broth, "Sweets" holds gelatin. The group allowlist catches what a name cannot see;
--- the name denylist catches what a group cannot. A tag requires both to agree.
+-- **Three further filters are kept, because each catches something the classifier cannot see:**
 --
--- A NULL group fails the allowlist rather than being skipped: `coalesce` makes an unknown food
--- disqualifying, which is the direction a safety claim has to fail in.
+--  1. `nutrition_coverage = 1.0` — an unidentified ingredient is exactly the one that might
+--     disqualify the recipe.
+--  2. The **name denylist** — the classifier judges the ENTITY, and entity resolution is 67.3%
+--     accurate. Three recipes containing real chicken, bacon and sausage resolved to the
+--     *meatless* analogues, which are correctly vegetarian as entities. Only the name check
+--     stopped those being tagged.
+--  3. The **directions veto** — `coverage = 1.0` means "every line we have was weighed", not "we
+--     have every line". Bronze's "Pickled Bologna" lists vinegar, sugar, salt and pickling spice
+--     and no bologna; the method says "remove skin from 2 rings bologna".
 --
--- Still not an allergen guarantee — resolution is 67.3% accurate at the entity level, so an
--- ingredient can be mapped to the wrong food entirely. The README says so.
+-- The veto patterns end `)\w*\b`, not `)\b`. The earlier version matched no inflected form at
+-- all — `hamburger`, `sausages`, `steaks`, `chickens` all missed — while the gluten pattern one
+-- line below had the suffix. Adding it moves the veto from 3,309 to 3,609 of 15,000 recipes.
+--
+-- Still not an allergen guarantee. It rests on entity resolution being right about which food a
+-- line refers to, and that is measured at 67.3% at the entity level. The README says so.
 
 with lines as (
 
     select
         resolved.recipe_id,
-        lower(coalesce(foods.display_name, ''))  as name,
-        coalesce(foods.food_category, '')        as food_group
+        lower(coalesce(foods.display_name, '')) as name,
+        lower(coalesce(resolved.normalized_text, '')) as line,
+        coalesce(foods.is_vegetarian, 'unknown') as is_vegetarian,
+        coalesce(foods.is_vegan, 'unknown')      as is_vegan,
+        coalesce(foods.is_gluten_free, 'unknown') as is_gluten_free
     from {{ ref('recipe_ingredients_resolved') }} as resolved
     left join {{ ref('canonical_ingredients') }} as foods
         on foods.canonical_id = resolved.canonical_id
@@ -55,29 +65,29 @@ complete_recipes as (
 
 ),
 
--- Recipes whose METHOD names a food their ingredient list does not.
---
--- `nutrition_coverage = 1.0` means "every line we have was weighed", not "we have every line",
--- and the corpus ships truncated ingredient lists. Bronze's "Pickled Bologna" lists vinegar,
--- sugar, salt and pickling spice — no bologna — so it is fully covered, fully resolved, sits
--- entirely inside allowed food groups, and is not vegan. The directions say "remove skin from 2
--- rings bologna". They are the only place in the corpus that gap is visible.
---
--- The signal is powered rather than assumed: this pattern fires on 3,083 of 15,000 recipes
--- (20.6%). A first attempt at the same measurement matched 0 of 15,000 because `directions` is
--- stored as a JSON *string* and was being joined as a list, which spaced out every character —
--- a check that cannot fire proves nothing, so the control was run before the veto was trusted.
+-- Recipes whose METHOD names a food their ingredient list does not. See note 3 above. The signal
+-- is powered rather than assumed: the meat pattern fires on 22.1% of all 15,000 recipes. An
+-- earlier version of this measurement matched 0 of 15,000 because `directions` is stored as a
+-- JSON *string* and was being joined as a list, spacing out every character — a check that
+-- cannot fire proves nothing, so the control was run before the veto was trusted.
 suspect_directions as (
 
     select
         recipe_id,
         regexp_matches(coalesce(directions, ''),
-            '\b(beef|pork|chicken|turkey|ham|bacon|sausage|meatloaf|meatball|steak|lamb|veal'
-            '|burger|brisket|salami|pepperoni|venison|fish|salmon|tuna|shrimp|crab|lobster'
-            '|clam|oyster|bologna|wiener|hotdog|liver|roast|gelatin|broth)\b') as names_meat,
+            '\b(beef|pork|chicken|turkey|ham|bacon|sausage|meat|meatloaf|meatball|steak|lamb'
+            '|veal|burger|brisket|salami|pepperoni|venison|fish|salmon|tuna|shrimp|crab|lobster'
+            '|clam|oyster|bologna|wiener|frankfurter|hotdog|liver|roast|rib|anchov|gelatin'
+            '|broth|bouillon|lard|suet|tallow|duck|goose|bison|seafood|prawn|worcestershire'
+            ')\w*\b') as names_meat,
+        regexp_matches(coalesce(directions, ''),
+            '\b(milk|butter|cheese|cream|yogurt|egg|honey|mayonnaise|marshmallow|custard'
+            '|whey|casein|ghee|buttermilk|sherbet'
+            ')\w*\b') as names_animal,
         regexp_matches(coalesce(directions, ''),
             '\b(flour|bread|batter|dough|pastry|noodle|pasta|macaroni|spaghetti|cracker'
-            '|crust|biscuit|cake mix|breadcrumb|bread crumb)\w*\b') as names_gluten
+            '|crust|biscuit|breadcrumb|wheat|barley|rye|malt|oat|cake mix|graham|cereal'
+            ')\w*\b') as names_gluten
     from {{ source('silver', 'recipe_meta') }}
 
 ),
@@ -87,41 +97,11 @@ flags as (
     select
         lines.recipe_id,
 
-        -- Groups that contain no animal flesh. The eleven excluded are Beef / Pork / Poultry /
-        -- Lamb, Veal, and Game / Finfish and Shellfish / Sausages and Luncheon Meats — plus the
-        -- composite groups whose contents are unknowable from the group alone: Fast Foods,
-        -- Restaurant Foods, Meals, Entrees, and Side Dishes, Baby Foods, and American
-        -- Indian/Alaska Native Foods.
-        bool_and(lines.food_group in (
-            'Vegetables and Vegetable Products', 'Fruits and Fruit Juices',
-            'Legumes and Legume Products', 'Cereal Grains and Pasta',
-            'Nut and Seed Products', 'Spices and Herbs', 'Dairy and Egg Products',
-            'Beverages', 'Breakfast Cereals', 'Baked Products', 'Sweets',
-            'Fats and Oils', 'Soups, Sauces, and Gravies', 'Snacks'
-        )) as all_groups_meatless,
+        bool_and(lines.is_vegetarian = 'yes')  as every_entity_vegetarian,
+        bool_and(lines.is_vegan = 'yes')       as every_entity_vegan,
+        bool_and(lines.is_gluten_free = 'yes') as every_entity_gluten_free,
 
-        -- The same list without Dairy and Egg Products.
-        bool_and(lines.food_group in (
-            'Vegetables and Vegetable Products', 'Fruits and Fruit Juices',
-            'Legumes and Legume Products', 'Cereal Grains and Pasta',
-            'Nut and Seed Products', 'Spices and Herbs',
-            'Beverages', 'Breakfast Cereals', 'Baked Products', 'Sweets',
-            'Fats and Oils', 'Soups, Sauces, and Gravies', 'Snacks'
-        )) as all_groups_plant,
-
-        -- Groups with no wheat, barley or rye in them. Plain meats belong here and baked goods,
-        -- pasta, cereals and snacks do not. Soups, Sauces, and Gravies is excluded because
-        -- thickening with flour is the norm rather than the exception.
-        bool_and(lines.food_group in (
-            'Vegetables and Vegetable Products', 'Fruits and Fruit Juices',
-            'Legumes and Legume Products', 'Nut and Seed Products', 'Spices and Herbs',
-            'Dairy and Egg Products', 'Fats and Oils', 'Beverages',
-            'Beef Products', 'Pork Products', 'Poultry Products',
-            'Lamb, Veal, and Game Products', 'Finfish and Shellfish Products'
-        )) as all_groups_gluten_free,
-
-        -- Flesh of any animal, for the ingredients that sit inside an allowed group anyway:
-        -- lard and tallow are "Fats and Oils", beef broth is "Soups, Sauces, and Gravies".
+        -- Note 2: the classifier judges the entity; this catches the entity being the wrong one.
         bool_or(
             name like '%beef%' or name like '%pork%' or name like '%chicken%'
             or name like '%turkey%' or name like '%lamb%' or name like '%veal%'
@@ -135,32 +115,39 @@ flags as (
             or name like '%salami%' or name like '%frankfurter%' or name like '%meat%'
             or name like '%broth%' or name like '%gelatin%' or name like '%lard%'
             or name like '%tallow%' or name like '%suet%' or name like '%burger%'
-        ) as has_meat,
+            or name like '%surimi%' or name like '%worcestershire%'
+        ) as has_meat_name,
 
-        -- Anything from an animal at all. Honey and gelatin are the ones people miss.
+        -- The same idea applied to the RECIPE'S OWN WORDS rather than the entity's. Both catch
+        -- the entity being the wrong one, and they catch different instances of it: a line
+        -- reading "chicken breast" that resolved to something harmless is invisible to the
+        -- display-name check.
         bool_or(
-            name like '%milk%' or name like '%butter,%' or name like '%butter %'
-            or name like '%cheese%' or name like '%cream%' or name like '%yogurt%'
-            or name like '%egg%' or name like '%honey%' or name like '%mayonnaise%'
-            or name like '%custard%' or name like '%whey%' or name like '%casein%'
-            or name like '%ghee%' or name like '%ice cream%'
-        ) as has_animal_product,
+            line like '%beef%' or line like '%pork%' or line like '%chicken%'
+            or line like '%turkey%' or line like '%bacon%' or line like '%sausage%'
+            or line like '%fish%' or line like '%shrimp%' or line like '%crab%'
+            or line like '%lamb%' or line like '%veal%' or line like '%venison%'
+            or line like '%anchov%' or line like '%gelatin%' or line like '%lard%'
+            or line like '%broth%' or line like '%bouillon%' or line like '%worcestershire%'
+            or line like '%meat%' or line like '%ham %' or line like '%liver%'
+        ) as has_meat_line,
 
-        -- Wheat, barley and rye reaching into an otherwise gluten-free group — soy sauce is
-        -- "Soups, Sauces, and Gravies", malted milk is "Dairy and Egg Products".
+        -- Gluten, judged on the recipe's words. "Icebox Cookies" writes `flour` and it resolved
+        -- to *Millet flour* — which is genuinely gluten-free as an entity, so the classifier was
+        -- right and the tag was still wrong. In American home cooking a bare "flour" means
+        -- wheat, so an unqualified gluten word disqualifies unless the line names a
+        -- gluten-free grain explicitly.
+        -- `regexp_matches`, not `SIMILAR TO`: DuckDB's SIMILAR TO is anchored regex in which `%`
+        -- is a LITERAL percent sign, so `'%(flour|...)%'` matched nothing at all and this check
+        -- was dead on arrival. Verified against the real strings before being trusted — a check
+        -- that cannot fire is not a check, which is the third time that lesson has come up here.
         bool_or(
-            name like '%wheat%' or name like '%flour%' or name like '%bread%'
-            or name like '%barley%' or name like '%rye%' or name like '%bulgur%'
-            or name like '%couscous%' or name like '%semolina%' or name like '%farina%'
-            or name like '%macaroni%' or name like '%noodle%' or name like '%spaghetti%'
-            or name like '%pasta%' or name like '%cracker%' or name like '%cookie%'
-            or name like '%cake%' or name like '%pie crust%' or name like '%crust,%'
-            or name like '%crouton%' or name like '%pretzel%' or name like '%graham%'
-            or name like '%biscuit%' or name like '%tortilla, flour%' or name like '%bagel%'
-            or name like '%muffin%' or name like '%doughnut%' or name like '%pastry%'
-            or name like '%stuffing%' or name like '%oat%' or name like '%malt%'
-            or name like '%soy sauce%' or name like '%seitan%'
-        ) as has_gluten_source
+            regexp_matches(line, '\b(flour|bread|cracker|oats|oatmeal|barley|rye|wheat|pasta'
+                                 '|noodle|macaroni|spaghetti|graham|biscuit|semolina'
+                                 '|couscous|bulgur|crouton|stuffing|pretzel|malt)\w*\b')
+            and not regexp_matches(line, '\b(rice|corn|almond|coconut|millet|chestnut|arrowroot'
+                                         '|tapioca|buckwheat|potato|quinoa|soy)\w*\b')
+        ) as has_gluten_line
 
     from lines
     join complete_recipes using (recipe_id)
@@ -170,7 +157,7 @@ flags as (
 
 checked as (
 
-    select flags.*, suspect.names_meat, suspect.names_gluten
+    select flags.*, suspect.names_meat, suspect.names_animal, suspect.names_gluten
     from flags
     left join suspect_directions as suspect using (recipe_id)
 
@@ -178,18 +165,23 @@ checked as (
 
 select recipe_id, 'vegetarian' as tag
 from checked
-where all_groups_meatless and not has_meat and not coalesce(names_meat, true)
+where every_entity_vegetarian
+  and not has_meat_name and not has_meat_line
+  and not coalesce(names_meat, true)
 
 union all
 
 select recipe_id, 'vegan' as tag
 from checked
-where all_groups_plant and not has_meat and not has_animal_product
+where every_entity_vegan
+  and not has_meat_name and not has_meat_line
   and not coalesce(names_meat, true)
+  and not coalesce(names_animal, true)
 
 union all
 
 select recipe_id, 'gluten-free' as tag
 from checked
-where all_groups_gluten_free and not has_gluten_source
+where every_entity_gluten_free
+  and not has_gluten_line
   and not coalesce(names_gluten, true)
