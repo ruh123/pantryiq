@@ -360,6 +360,10 @@ Reading back over three phases, one pattern repeats:
 - The broken test suite — found by deliberately sabotaging the code to see if tests noticed.
 - The circular improvement — found by recomputing with the corrections removed.
 - The false "all tests caught it" — found by running a control.
+- The dietary-tag test that agreed with the bug it was testing — found when a new signal
+  (recipe titles) finally gave an independent view.
+- The "zero problems in 15,000 recipes" that was a broken search — found by asking whether the
+  check could fire at all. It couldn't.
 
 And the counter-example, from this project's own history: a claim that the AI matching gains were
 "not circular" was written next to real work, sounded reasonable, and was **false**. Nobody
@@ -369,7 +373,174 @@ checked it because it read like it had already been checked.
 
 ---
 
+## 11. Phase 4 — The AI agent (2026-08-04)
+
+### The goal
+
+Put an AI assistant on top of everything built so far — and make it so it **can only tell you
+things the warehouse actually knows**. Not "we asked it nicely to be accurate". Actually checked,
+by code, on every single answer.
+
+### How it works — four steps, and only two involve AI
+
+```
+  you ask a question
+        |
+   1.  PARSE      Claude turns your words into a search filter
+        |         (it may shape the search — but it can only fill in a fixed form)
+   2.  RETRIEVE   plain database query against the verified data
+        |         (no AI at all — this is the important part)
+   3.  GENERATE   Claude writes the answer, and is shown ONLY what step 2 found
+        |         (it has no access to the recipe database, no tools, nothing else)
+   4.  GUARDRAIL  ordinary code checks every number in the answer
+                  against what step 2 returned. Anything else is rejected.
+```
+
+The reason step 2 has no AI in it is the whole design. If the model could choose what to look up,
+"it only speaks from verified data" would be a hope. Because retrieval happens in code, it's a
+fact about how the program is built.
+
+### The guardrail — the part we're proudest of
+
+After Claude writes an answer, code pulls out **every number in it** and checks each one against
+the data. Not "does this look right" — literally, is this number in the retrieved facts?
+
+We then tested it the only honest way: we took 20 real answers and deliberately corrupted them —
+changed a calorie count, invented a price, made up a serving count, divided a total by servings,
+added a plausible-sounding round number. Then we counted how many the guardrail caught.
+
+| | result |
+|---|---|
+| **fabricated numbers caught** | **36 out of 36 (100%)** |
+| **correct answers wrongly blocked** | **0 out of 20 (0%)** |
+| numbers checked in total | 346 (about 17 per answer) |
+
+Both numbers matter. A guardrail that rejects *everything* would catch 100% of lies and be
+useless. Reporting only the catch rate would hide that.
+
+### The number the AI is not allowed to compute
+
+This one is subtle and it's the best example of the whole approach.
+
+A recipe might say "makes 8 servings" and "total: 3,470 calories". Any AI will happily divide and
+tell you "434 calories per serving". But back in Phase 3 we deliberately **refused** to publish
+that division, because that recipe's calorie total was missing an ingredient we couldn't weigh —
+so the total is an undercount, and dividing an undercount by a real serving count gives you a
+confident-looking number that's wrong.
+
+So the guardrail does not allow division. 434 isn't in the data, so the answer is rejected. When
+we ran it, Claude wrote *"It makes 8 servings, though the per-serving calories aren't available"*
+— which is exactly right.
+
+### Something broke, and it was our fault from Phase 3
+
+Once the agent could name recipes, we could finally cross-check the dietary tags — and found a
+recipe called **"Meat Loaf" tagged vegetarian**.
+
+Here's why. Phase 3 decided "vegetarian" by checking that no ingredient's name contained a meat
+word (beef, pork, chicken...). But this recipe's "hamburger" had been matched to a USDA food
+called **"BURGER KING, Hamburger"** — which contains none of those words. So it passed.
+
+Worse: **our own test for this problem used the same method**, so it reported everything was
+fine. The test and the thing it was testing shared a blind spot.
+
+**The fix was to turn the logic inside out.** Instead of a list of *banned words* (where anything
+you didn't think of slips through), we downloaded USDA's own food categories — there are exactly
+25, things like "Beef Products", "Vegetables and Vegetable Products", "Fast Foods" — and now a
+recipe is only tagged vegetarian if **every** ingredient is in a category we've allowed. Anything
+unrecognised fails. "BURGER KING, Hamburger" is in "Fast Foods", which isn't on the list, so it
+declines instead of lying.
+
+Result: recipes falsely tagged vegetarian went from 13 to 5, vegan from 9 to 4, gluten-free from
+329 tagged down to 63 (a much smaller but much more trustworthy set).
+
+### The discovery underneath that one
+
+Chasing the last few leaks turned up something more interesting: **the original recipe data is
+sometimes incomplete.**
+
+A recipe called "Pickled Bologna" lists exactly four ingredients: vinegar, sugar, salt, pickling
+spice. **There is no bologna in the ingredient list.** Our pipeline handled it perfectly — it
+faithfully recorded all four ingredients. But that means the recipe passes every check we have
+and is not vegetarian.
+
+The lesson: "we weighed 100% of the ingredients" is not the same as "we have all the
+ingredients", and nothing downstream of the ingredient list can tell the difference.
+
+The cooking instructions *can* — they say "remove skin from 2 rings bologna". So we now also
+check the method text, and refuse to tag a recipe when the instructions mention a food the
+ingredient list doesn't.
+
+**And our first attempt at measuring this was silently broken.** It reported zero problems across
+all 15,000 recipes, which looked like great news. In fact the instructions field was being read
+incorrectly (it's stored as text, and our code treated it as a list, turning "boil ingredients"
+into "b o i l   i n g r e d i e n t s"), so the search could never match anything. We only caught
+it by asking "would this test ever fire?" — and the answer was no. Fixed, it fires on 20.6% of
+recipes.
+
+### Speed — we missed the target and are saying so
+
+The goal was under 5 seconds from question to answer. Measured:
+
+| step | time |
+|---|---|
+| Claude understands your question | 3.6 – 4.0 s |
+| **database search** | **0.015 – 0.038 s** |
+| Claude starts writing | ~1.3 – 2.3 s more |
+| **first words appear** | **5.3 s** (median) |
+| whole answer finished | 7 – 12 s |
+
+The database part is essentially free. All the time is the two AI calls, and both were already
+set to their fastest settings. We added **streaming** so words appear as they're written, which
+took the wait from 13.4 seconds to 5.3 — a big improvement, still just over target.
+
+A faster model would close the gap (we measured one that does the first step in 2.4s instead of
+3.6s with identical results), but swapping models is your call, not a change to make quietly.
+
+One thing we did fix: the database search was originally taking **973 milliseconds** because of
+how the search query was written. Rewritten, it takes **17** — 57× faster, same results.
+
+### The meal planner — where the AI does the least
+
+"Plan a week under $50 with no day over 2,000 calories."
+
+The **plan is chosen by ordinary code**, then verified by ordinary code, and only then does
+Claude describe it. The AI does no arithmetic and no constraint-solving — the brief was explicit
+about that, and it's right: arithmetic is the thing computers already do perfectly.
+
+A real run: 7 days, $33.65 of the $50 budget, every day under the ceiling, verified in code.
+
+This exposed one more thing worth recording. Because we'd told Claude never to add numbers up, it
+**refused to describe its own plan** — "I can't total up costs across days". Correct behaviour,
+wrong outcome. So we added a separate channel for figures that were *already calculated and
+checked by code*, which the AI may quote. Those are results, not arithmetic it performed.
+
+### What we can now do
+
+```
+uv run python -m pantryiq.agent "what can I make with chicken, rice and onions?"
+uv run python -m pantryiq.agent.planner
+uv run python scripts/measure_guardrail.py
+```
+
+Every question is logged — the question, what was retrieved, the answer, and the guardrail's
+verdict — so any past answer can be re-checked later.
+
+### Honest limitations
+
+- **The guardrail checks that a number exists in the data, not that it belongs to the recipe
+  being discussed.** Quoting one recipe's calories while naming another would pass.
+- **Speed misses the 5-second target** (5.3s to first words).
+- **Some dietary tags are still wrong** — about 5 in 572 vegetarian recipes, mostly where the
+  source recipe data itself is incomplete.
+- **The planner's picks skew to desserts**, because only 42 recipes have both complete nutrition
+  and complete pricing, and cakes are calorie-dense.
+- **Recipe relevance has no concept of "dinner"** — ask for a vegetarian dinner and you may get
+  cookies, because the data has no meal-type information. The agent says so rather than pretending.
+
+---
+
 ## What gets added here next
 
-Phase 4 (the AI agent) and Phase 5 (the web app and deployment). Each will add a section in the
-same shape: *goal → what we built → decisions and why → what we measured → what we got wrong*.
+Phase 5 (the web app and deployment). It will add a section in the same shape:
+*goal → what we built → decisions and why → what we measured → what we got wrong*.
