@@ -86,6 +86,24 @@ def pantryiq_pipeline():
         main()
 
     @task
+    def build_recipe_meta():
+        """Bronze recipes -> silver.recipe_meta: the titles the agent names recipes by."""
+        from pantryiq.silver.recipe_meta import main
+
+        main()
+
+    @task
+    def build_usda_categories():
+        """Bronze categories -> silver.usda_food_categories: USDA's own 25 food groups.
+
+        What `gold.recipe_tags` allows against. Without it the dietary tags fall back to matching
+        substrings in product names, which cannot support a safety claim.
+        """
+        from pantryiq.silver.usda_categories import main
+
+        main()
+
+    @task
     def extract_servings():
         """Bronze recipes -> silver.recipe_servings, for the ~15% that state one."""
         from pantryiq.silver.servings import main
@@ -179,6 +197,8 @@ def pantryiq_pipeline():
         >> normalize_usda_foods()
         >> parse_usda_portions()
         >> extract_servings()
+        >> build_recipe_meta()
+        >> build_usda_categories()
         >> generate_candidates()
         >> fit_confidence_curve()
         >> fit_abstain_threshold()
@@ -229,7 +249,19 @@ def pantryiq_ingest():
 
         main()
 
-    ingest_recipes() >> ingest_usda_foods() >> ingest_usda_portions()
+    @task
+    def ingest_usda_categories():
+        """A second ~410-request pass over the same ids, for `foodCategory`.
+
+        Its own pull because the portions cache kept only `fdcId` and `foodPortions` and threw
+        the rest of the full-format response away. Resumable in the same way.
+        """
+        from pantryiq.ingestion.categories import main
+
+        main()
+
+    (ingest_recipes() >> ingest_usda_foods() >> ingest_usda_portions()
+     >> ingest_usda_categories())
 
 
 pantryiq_pipeline()

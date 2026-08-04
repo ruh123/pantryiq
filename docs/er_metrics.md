@@ -1101,3 +1101,151 @@ low-confidence labels (§9 — measured; the ensemble could not improve them) ·
 test (§10 — the question turned out to be structurally unanswerable against these labels) ·
 2.7, the entity map and the stratified corpus headline (§11) · occurrence-weighted equivalence
 (§11) · a fitted no-match threshold, closing §11's stated limitation (§12).
+
+---
+
+## §15 — Phase 4: the agent, and what could be measured about it (2026-08-04)
+
+Phase 4 puts a model on top of the warehouse. The claim being defended is that it **can only
+speak from verified data**, and the only version of that claim worth making is one a machine can
+check. So the phase's headline is not the answers — it is the guardrail's two rates.
+
+### The guardrail, measured
+
+`scripts/measure_guardrail.py`: 20 real questions through parse → retrieve → generate, then one
+injected numeric error at a time.
+
+| | value | 95% Wilson |
+|---|---|---|
+| **catch rate** | **36/36 = 100%** | 90.4 – 100% |
+| **false-positive rate** | **0/20 = 0%** | 0.0 – 16.1% |
+| numeric claims checked | 346 (17.3 per answer) | |
+
+Both numbers or neither. A guardrail that rejects everything catches 100% of fabrications and is
+worthless; the unmodified answers passing **is** the control, which is the §13 lesson applied
+before the fact rather than after it.
+
+Five error classes were injected — a perturbed real figure, an invented cost, a fabricated
+serving count, a total divided by its serving count, and a plausible absent round number. All
+five classes were caught in full.
+
+**54 of 90 injections (60%) were discarded** because the number landed on a legitimate value in
+the same context, which makes them not fabrications. That rate is itself the finding: with 8
+recipes the allowed set holds ~90 values and small integers are dense in it. **The guardrail
+verifies a number EXISTS in the context, not that it belongs to the recipe being discussed** —
+quoting one recipe's calories while naming another passes. That is misattribution, not
+fabrication, and closing it needs per-recipe scoping this does not attempt.
+
+### Two things the first measurement got wrong
+
+1. **Recipe ids were being read as quantities.** Both initial "false positives" were a model
+   citing `recipenlg:14797` — quoting the context exactly. Fixed by stripping ids that appear in
+   the context before extraction; an invented id is still caught. FP rate 10% → 0%.
+2. **The ordinal allowance left fabricated serving counts unguarded.** Small integers have to be
+   tolerated as list markers, which meant "it makes 6 servings" passed. Now a unit following the
+   number makes it a measurement, checked strictly; a bare integer stays an enumeration.
+
+### Latency — the DoD is missed, and by how much
+
+| stage | time |
+|---|---|
+| parse (Claude, effort low, thinking off) | 3.6 – 4.0 s |
+| retrieval (SQL, no model) | **15 – 38 ms** |
+| generation, first token | 1.3 – 2.3 s warm |
+| **time to first token, median** | **5.3 s** (p90 8.2 s) |
+| complete answer | 7 – 12 s |
+
+The brief asks for **< 5 s end to end**, and that is not met. Both calls already run at the
+minimum effort with thinking disabled, so there was no budget left to cut. Streaming was added
+and moved the perceived wait from 13.4 s to a 5.3 s median first token; the remaining binding
+constraint is the parse call, which must complete before retrieval can start. Sonnet 5 parses
+identically in 2,354 ms against Opus 5's 3,646 ms and would close most of the gap — **not taken,
+because model choice is the user's decision, not a silent optimisation.**
+
+Retrieval's own budget was nearly missed for an avoidable reason: expressing the ingredient match
+as a join against a table of patterns costs **973 ms** for three terms, because the pattern
+becomes a column and DuckDB recompiles the regex for each of 112,463 rows. Bound as constants the
+same three cost **17 ms** — a 57× difference in SQL that reads almost identically.
+
+### The matching rule, chosen by measurement
+
+| term | exact | substring | word-boundary | what the boundary kills |
+|---|---|---|---|---|
+| `corn` | 63 | 1,477 | **871** | `acorn`, `popcorn`, `mexicorn` |
+| `milk` | 2,306 | 3,842 | **3,436** | `buttermilk`, `milky way bar` |
+| `pepper` | 1,316 | 3,782 | **3,666** | `pepperoni`, `peppermint`, `cyapepper` |
+| `chicken` | 211 | 1,565 | **1,565** | (nothing) |
+
+Exact under-recalls catastrophically; substring reaches into different foods. The boundary rule
+keeps genuine plurals and generalises — a hand-curated stoplist would never have caught
+`cyapepper` or `mexicorn`.
+
+### The dietary tags were wrong, and the fix is a different shape
+
+Phase 3 stated `vegetarian` / `vegan` / `gluten-free` as **the absence of a disqualifying
+substring in `display_name`**. A denylist cannot support a safety claim: every product name
+nobody anticipated is a silent false positive. Phase 4's recipe titles gave the first independent
+signal, and two failures fell straight out:
+
+    recipenlg:9231  "Meat Loaf"  vegetarian   `hamburger`  -> "BURGER KING, Hamburger"
+    recipenlg:10493 "Meat Loaf"  gluten-free  `quaker oat` -> "Cereals, QUAKER, MultiGrain Oatmeal"
+
+Neither string contains a listed token. **My Phase-3 leak test reported 0 leaks because it used
+the same kind of substring pattern as the predicate it was testing** — the test and the rule
+shared a blind spot, so it confirmed the denylist against itself.
+
+The fix pulls USDA's own `foodCategory` (a third Bronze table, ~410 requests — the portions cache
+had kept only `fdcId` and `foodPortions`) and inverts the logic: **a tag now requires every
+ingredient to sit in an allowed one of USDA's 25 food groups.** An unrecognised food declines the
+tag instead of qualifying for it. Name patterns are kept as a *second* filter, because groups are
+coarse and some of them mix — "Fats and Oils" holds lard, "Soups, Sauces, and Gravies" holds beef
+broth.
+
+| tag | denylist | + allowlist | + directions veto | title leak |
+|---|---|---|---|---|
+| vegetarian | 604 | 580 | **572** | 13 → **5** |
+| vegan | 147 | 139 | **134** | 9 → **4** |
+| gluten-free | 329 | 68 | **63** | ? → **1** |
+
+### `coverage = 1.0` does not mean the ingredient list is complete
+
+The residual leaks turned out not to be tag failures at all. **The corpus ships truncated
+ingredient lists.** Bronze's "Pickled Bologna" lists vinegar, sugar, salt and pickling spice —
+no bologna. Silver kept all four lines faithfully; the pipeline is correct end to end. So a
+recipe can be fully weighed, fully resolved, sit entirely inside allowed food groups, and still
+not be vegan.
+
+`nutrition_coverage = 1.0` means *every line we have was weighed*, not *we have every line*, and
+nothing downstream of the ingredient list can see the difference. The **directions** can: they
+say "remove skin from 2 rings bologna". A directions-based veto now blocks a tag when the method
+names a food the ingredient list does not.
+
+**The measurement is deliberately independent of the fix**: the veto reads directions, and the
+residual leak above is measured with *titles*. Of the 5 vegetarian titles still naming meat, at
+least three are artifacts of the measurement rather than the tags — "Cucumber Sauce **For**
+Fish", "Fish Fry Coating Mix" and "Meat Marinade" are condiments that contain no meat.
+
+**And the first version of that measurement was vacuous.** It matched 0 of 15,000 recipes, which
+looked like a clean result. `directions` is stored as a JSON *string*, so joining it as a list
+spaced out every character (`'b o i l   i n g r e d i e n t s'`) and the pattern could never fire.
+Caught by running the control: the corrected pattern fires on 3,083 of 15,000 (20.6%). *A check
+that cannot fail is not evidence.* Same lesson as §13's mutation sweep, in a new costume.
+
+### Design decisions Phase 4 made and had to defend
+
+- **`kcal_basis` is parsed, not assumed.** "Under 500 calories" means a serving to almost
+  everyone. The median recipe here is 2,539 kcal in total, so applying that bound to the total
+  returns 145 recipes that are mostly dips and dressings, while per-serving returns 104 actual
+  meals. Getting the basis wrong answers a meal question with salad dressing.
+- **Division is not a permitted derivation.** A recipe can carry `servings: 8` and
+  `kcal_per_serving: unknown` at once, because §3.4 refused to publish the quotient below full
+  coverage. 3,470 / 8 = 433.75 is exactly the figure that refusal exists to prevent.
+- **Sums are not permitted either.** Allowing subset sums over 8 recipes admits 256 extra values
+  per field. Measured first: the false-positive rate without them is 0%, so they were not bought.
+- **The planner runs on totals and says so.** Only 118 recipes carry a per-serving figure and
+  just 14 of those also have complete cost. A per-day-per-person plan would rest on a denominator
+  invented for the rest.
+- **Verified totals need their own channel.** Generation is forbidden from summing — and so it
+  refused to describe its own week plan, saying it could not total costs across days. An
+  `<already_computed>` block now carries figures the planner calculated *and verified*, which are
+  facts rather than arithmetic the model performed.

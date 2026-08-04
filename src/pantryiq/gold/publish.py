@@ -42,6 +42,7 @@ GOLD_TABLES = (
     "recipe_ingredients_resolved",
     "recipe_nutrition",
     "recipe_tags",
+    "recipe_meta",
 )
 # Counted into the stamp so a consumer can tell which Silver vintage Gold was derived from.
 SOURCE_TABLES = (
@@ -51,6 +52,7 @@ SOURCE_TABLES = (
     "silver.usda_foods",
     "silver.usda_portions",
     "silver.recipe_servings",
+    "silver.recipe_meta",
 )
 
 
@@ -78,7 +80,7 @@ def _git_sha() -> str:
 def publish(db_path: Path | str = DEFAULT_DB) -> dict:
     """Swap staging into `gold` in one transaction and stamp the run.
 
-    All five tables move together or none do. A partial publish is the exact failure this
+    Every table moves together or none does. A partial publish is the exact failure this
     function exists to prevent, so the swap is never done table-by-table outside a transaction.
     """
     con = duckdb.connect(str(db_path))
@@ -163,7 +165,7 @@ def main() -> None:
         counts = publish()
         path = export()
 
-    print("PUBLISHED — all five tables swapped in one transaction")
+    print(f"PUBLISHED — all {len(GOLD_TABLES)} tables swapped in one transaction")
     for name, count in counts.items():
         print(f"  gold.{name}: {count:,}")
     print(f"  exported: {path} ({path.stat().st_size / 1e6:.1f} MB, Gold only)")

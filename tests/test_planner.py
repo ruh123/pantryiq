@@ -1,0 +1,108 @@
+"""The week planner — constraint solving that must happen in code, not in a model."""
+from pathlib import Path
+
+import pytest
+
+from pantryiq.agent.context import RecipeFact
+from pantryiq.agent.guardrail import check
+from pantryiq.agent.planner import Plan, build_plan, candidates, plan_context
+from pantryiq.agent.retrieval import Candidate
+from test_context import make_candidate
+
+
+def priced(recipe_id: str, kcal: float, cost: float, **extra) -> Candidate:
+    return make_candidate(recipe_id=recipe_id, title=recipe_id, total_kcal=kcal,
+                          cost_total_usd=cost, cost_coverage=1.0, nutrition_coverage=1.0,
+                          **extra)
+
+
+def a_plan(*recipes, budget=50.0, ceiling=2000.0) -> Plan:
+    return Plan(recipes=recipes, budget_usd=budget, kcal_per_day=ceiling, days=7)
+
+
+def test_a_plan_that_breaks_its_budget_reports_it():
+    """`violations` is what makes 'verified' true rather than believed. The selection loop is
+    the thing being checked, so the check cannot depend on the loop being right."""
+    over = a_plan(priced("a", 500, 30.0), priced("b", 500, 30.0))
+
+    assert any("exceeds" in problem for problem in over.violations())
+
+
+def test_a_day_over_the_calorie_ceiling_reports_it():
+    over = a_plan(priced("a", 2500, 1.0))
+
+    assert any("daily ceiling" in problem for problem in over.violations())
+
+
+def test_the_same_recipe_twice_reports_it():
+    """A week of one dish satisfies every arithmetic constraint and is not a plan."""
+    repeated = a_plan(priced("a", 500, 1.0), priced("a", 500, 1.0))
+
+    assert any("twice" in problem for problem in repeated.violations())
+
+
+def test_a_valid_plan_has_no_violations():
+    assert a_plan(priced("a", 1900, 6.0), priced("b", 1800, 4.0)).violations() == []
+
+
+def test_the_verified_totals_are_quotable_but_a_model_derived_sum_is_not():
+    """The whole reason `computed` exists. Generation is forbidden from summing — a model adding
+    seven costs is doing arithmetic nobody checked — but a total the planner computed and
+    verified is a fact. Before this channel existed the narration refused to describe its own
+    plan, saying it could not total costs across days."""
+    plan = a_plan(priced("a", 1900, 6.0), priced("b", 1800, 4.0))
+    context = plan_context(plan)
+
+    assert check("The week costs $10.00 of your $50 budget.", context).passed
+    assert not check("The week costs $11.00.", context).passed
+
+
+def test_the_narration_context_carries_the_budget_and_the_remainder():
+    plan = a_plan(priced("a", 1900, 6.0), priced("b", 1800, 4.0))
+
+    labels = dict(plan_context(plan).computed)
+
+    assert labels["total_cost_usd"] == 10.0
+    assert labels["budget_remaining_usd"] == 40.0
+    assert labels["days_planned"] == 2
+
+
+def test_a_recipe_with_no_serving_count_still_reports_no_per_serving_figure():
+    """The planner runs on totals precisely because only 14 recipes have both a serving count
+    and complete cost. It must never manufacture the denominator it declined to use."""
+    fact = RecipeFact.from_candidate(priced("a", 1900, 6.0, servings=None))
+
+    assert fact.kcal_per_serving is None
+    assert "<kcal_per_serving>unknown</kcal_per_serving>" in plan_context(
+        a_plan(priced("a", 1900, 6.0, servings=None))).to_prompt()
+
+
+@pytest.mark.skipif(not Path("data/pantryiq_gold.duckdb").exists(), reason="export not present")
+def test_candidates_all_have_complete_nutrition_and_complete_cost():
+    """A budget is a statement about money, and a cost covering 60% of a recipe is a floor, not
+    a price. Planning against floors produces a week that looks affordable and is not."""
+    pool = candidates(2000.0)
+
+    assert pool, "no candidates at all"
+    assert all(recipe.nutrition_coverage == 1.0 for recipe in pool)
+    assert all(recipe.cost_coverage == 1.0 for recipe in pool)
+    assert all(recipe.total_kcal <= 2000.0 for recipe in pool)
+
+
+@pytest.mark.skipif(not Path("data/pantryiq_gold.duckdb").exists(), reason="export not present")
+def test_a_real_plan_holds_its_constraints():
+    plan = build_plan(budget_usd=50.0, kcal_per_day=2000.0, days=7)
+
+    assert plan.violations() == []
+    assert len(plan.recipes) == 7
+    assert plan.total_cost <= 50.0
+
+
+@pytest.mark.skipif(not Path("data/pantryiq_gold.duckdb").exists(), reason="export not present")
+def test_an_impossible_budget_yields_a_short_week_not_a_repeated_one():
+    """A short honest plan beats a padded one. The loop stops rather than reusing a recipe."""
+    plan = build_plan(budget_usd=3.0, kcal_per_day=2000.0, days=7)
+
+    assert plan.violations() == []
+    assert len(plan.recipes) < 7
+    assert plan.total_cost <= 3.0

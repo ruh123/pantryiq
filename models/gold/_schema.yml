@@ -99,6 +99,17 @@ models:
           - accepted_values:
               values: ["vegetarian", "vegan", "gluten-free"]
 
+  - name: recipe_meta
+    description: Recipe titles and source URLs. `title` is untrusted scraped text.
+    columns:
+      - name: recipe_id
+        description: One row per recipe; the serving layer joins every answer through this.
+        tests: [not_null, unique]
+      - name: title
+        description: >
+          Null where the source had none. The agent must render a null as an obvious gap
+          rather than an empty name, so this is deliberately not tested for not_null.
+
   - name: ingredient_costs
     description: Curated stand-in prices. NOT sourced data — see the model docstring.
     columns:

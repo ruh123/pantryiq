@@ -75,7 +75,8 @@ candidate generation at recall@50 = 90.5%, a shipped resolver, and the entity ma
 Claude adjudicator was **investigated and not built** — its accuracy turns out to be structurally
 unmeasurable against an LLM-labeled gold set (§10).
 
-**Phase 3 in progress** — Bronze USDA portions, gram conversion, and a dbt Gold layer are built:
+**Phase 3 complete** — Bronze USDA portions, gram conversion, a dbt Gold layer, the cost table,
+a write-audit-publish gate and the Airflow DAG:
 63.9% of ingredient lines convert to a mass, and `gold.recipe_nutrition` carries per-recipe and
 per-100g nutrition with `nutrition_coverage` and `data_trust_score`. Two findings worth reading
 before quoting anything from Gold ([§14](docs/er_metrics.md)):
@@ -93,10 +94,45 @@ before quoting anything from Gold ([§14](docs/er_metrics.md)):
 - **Only 4.7% of recipes have complete nutrition.** Per-line coverage is 63.9%, but a recipe needs
   every line, so completeness compounds. Nothing quotes a recipe total without its coverage.
 
-**Still to build** — the cost table, the quality gate, and the Airflow DAG.
+**Phase 4 complete** — the agent: `parse` (Claude, into a fixed filter schema) → `retrieve`
+(SQL, no model) → `generate` (Claude, shown only what retrieval returned) → `guardrail`
+(deterministic code). Retrieval sits outside the model's control on purpose; that is what makes
+"it can only speak from verified data" checkable rather than aspirational. Read
+[§15](docs/er_metrics.md) before quoting any of it:
+
+- **The guardrail catches 36/36 injected fabrications (100%, Wilson 90.4–100%) with a 0/20
+  false-positive rate** on unmodified answers, across five error classes — perturbed figures,
+  invented costs, fabricated serving counts, a total divided by its servings, and plausible
+  absent numbers. Both rates are reported together, and the clean answers passing is the control.
+  It verifies a number *exists* in the retrieved context, **not** that it belongs to the recipe
+  being discussed — misattribution would pass.
+- **Latency misses the <5s target**: 5.3s median to first token (p90 8.2s), 7–12s to a complete
+  answer. Both model calls already run at minimum effort with thinking off; retrieval itself is
+  15–38ms. Streaming took the perceived wait from 13.4s to 5.3s.
+- **The dietary tags were rebuilt on USDA's own 25 food groups as an allowlist**, after Phase 4's
+  recipe titles exposed a "Meat Loaf" tagged vegetarian (`hamburger` → *BURGER KING, Hamburger*,
+  which contains no meat word). The Phase-3 leak test had reported zero leaks because it used the
+  same substring method as the predicate it was testing. Falsely-tagged recipes: vegetarian
+  13 → 5, vegan 9 → 4, gluten-free 329 tagged → 63.
+- **`nutrition_coverage = 1.0` does not mean the ingredient list is complete.** The corpus ships
+  truncated recipes — "Pickled Bologna" lists vinegar, sugar, salt and pickling spice and no
+  bologna. The pipeline is faithful; the source is short. A directions-based veto now blocks a
+  tag when the method names a food the ingredients do not.
+
+**Still to build** — Phase 5: the web app and deployment.
 
 (`foodPortions.gramWeight` is absent from the abridged `/foods/list` payload in Bronze, but
-`POST /v1/foods` with `format=full` serves it in ~410 requests — no bulk download needed.)
+`POST /v1/foods` with `format=full` serves it in ~410 requests — no bulk download needed. USDA's
+`foodCategory` needs its own pass over the same ids, because the portions cache kept only
+`fdcId` and `foodPortions`.)
+
+### Asking it something
+
+```bash
+uv run python -m pantryiq.agent "what can I make with chicken, rice and onions?"
+uv run python -m pantryiq.agent.planner        # a week's plan, solved in code
+uv run python scripts/measure_guardrail.py     # catch rate + false-positive rate
+```
 
 - Measured results, including the negative ones: [`docs/er_metrics.md`](docs/er_metrics.md)
 - Labeling convention: [`docs/labeling_guide.md`](docs/labeling_guide.md)

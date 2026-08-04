@@ -47,3 +47,8 @@ gx/uncommitted/
 great_expectations/uncommitted/
 data/pantryiq_gold.duckdb
 data/.warehouse.lock
+
+# The agent's own query log — runtime data, not source.
+data/agent_log.duckdb
+data/guardrail_responses.jsonl
+data/usda_categories_cache.jsonl

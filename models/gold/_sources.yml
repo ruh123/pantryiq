@@ -13,3 +13,5 @@ sources:
       - name: usda_foods
       - name: distinct_ingredient_strings
       - name: recipe_servings
+      - name: recipe_meta
+      - name: usda_food_categories
