@@ -3,27 +3,37 @@ name = "pantryiq"
 version = "0.0.0"
 description = "Verified recipe data platform with a data-grounded AI layer."
 requires-python = ">=3.11"
+# `[project.dependencies]` is the SERVING set and nothing else — what the deployed container
+# needs to answer a question. The whole agent package imports exactly three third-party names
+# (`anthropic`, `duckdb`, `dotenv`); `streamlit` is the UI on top of them. Everything the batch
+# pipeline needs lives in the `pipeline` group below, and `[tool.uv] default-groups` puts it back
+# for every local and CI install, so `uv sync` is unchanged. The Docker build is the only caller
+# that passes `--no-default-groups`, and it exists because `sentence-transformers` pulls in torch:
+# ~2 GB of a serving image that never loads a model. Nothing under `src/pantryiq/agent/` imports
+# `pantryiq.er`, and `er/candidates.py` imports the transformer inside a function, so this split
+# is a packaging fact rather than a refactor.
 dependencies = [
     "anthropic>=0.116.0",
-    "dbt-core>=1.9",
-    "dbt-duckdb>=1.9",
     "duckdb>=1.5.5",
-    "numpy>=2.4.6",
-    "pyarrow>=25.0.0",
-    "pyiceberg[sql-sqlite]>=0.11.1",
     "python-dotenv>=1.2.2",
-    "rapidfuzz>=3.14.5",
-    "requests>=2.34.2",
-    "scikit-learn>=1.9.0",
-    "sentence-transformers>=5.6.1",
+    "streamlit>=1.40",
 ]
-
-# Runtime deps are added per phase — nothing speculative here.
 
 [dependency-groups]
 dev = [
     "ruff>=0.6",
     "pytest>=8",
+]
+pipeline = [
+    "dbt-core>=1.9",
+    "dbt-duckdb>=1.9",
+    "numpy>=2.4.6",
+    "pyarrow>=25.0.0",
+    "pyiceberg[sql-sqlite]>=0.11.1",
+    "rapidfuzz>=3.14.5",
+    "requests>=2.34.2",
+    "scikit-learn>=1.9.0",
+    "sentence-transformers>=5.6.1",
 ]
 # Orchestration and expectation-suite deps live OUTSIDE the default groups on purpose. Airflow
 # pins click/SQLAlchemy/pydantic narrowly and great-expectations drags in pandas, and CI runs
@@ -35,6 +45,11 @@ orchestration = [
 quality = [
     "great-expectations>=1.3",
 ]
+
+[tool.uv]
+# `pipeline` is a default group, so `uv sync`, `make setup` and both CI jobs install exactly what
+# they installed before this split. Only the serving image opts out.
+default-groups = ["dev", "pipeline"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "scripts"]
