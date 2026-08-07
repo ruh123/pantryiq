@@ -19,6 +19,7 @@ Run:  uv run python -m pantryiq.agent.log
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,7 +29,11 @@ import duckdb
 from pantryiq.agent.context import AnswerContext
 from pantryiq.agent.guardrail import Verdict
 
-DEFAULT_DB = Path("data/agent_log.duckdb")
+# `PANTRYIQ_LOG_DB` overrides the location. This is the one file serving *writes*, so a deployed
+# container has to put it on a mount that survives a restart — otherwise the stored contexts, and
+# with them the ability to re-check a past answer, vanish on every deploy. Read at import time; see
+# the note on `retrieval.DEFAULT_DB`.
+DEFAULT_DB = Path(os.environ.get("PANTRYIQ_LOG_DB") or "data/agent_log.duckdb")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS agent_query_log (

@@ -39,6 +39,7 @@ Run:  uv run python -m pantryiq.agent.retrieval
 """
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -46,7 +47,12 @@ from pathlib import Path
 import duckdb
 
 # The agent reads the published export, never the shared warehouse — see the docstring.
-DEFAULT_DB = Path("data/pantryiq_gold.duckdb")
+#
+# `PANTRYIQ_GOLD_DB` overrides the location, because every path in this package is relative to the
+# process CWD and a container's is not the repo root. Read at import time, matching how
+# `profiles.yml` reads `PANTRYIQ_DB`: set it before the process starts, not during it. Callers that
+# need a different file per call already pass `db_path` and are unaffected.
+DEFAULT_DB = Path(os.environ.get("PANTRYIQ_GOLD_DB") or "data/pantryiq_gold.duckdb")
 
 # A recipe below this is too incompletely weighed to answer a nutrition question about.
 # 0.8 keeps 3,256 recipes; 1.0 would keep 711. See er_metrics.md §14 on why completeness is rare.
