@@ -1,0 +1,406 @@
+"""The web app — the architecture made visible, with a chat box attached.
+
+The brief is blunt about this (§2): "the chat UI is the least differentiating part." Any recipe
+app can print an answer. What this one can do is show, beside every answer, the exact set of facts
+the model was permitted to speak from and a deterministic verdict on every number it wrote. So
+the ledger and the badge are the screen, and the prose sits above them.
+
+Three deliberate choices:
+
+**Nothing streams.** `guardrail.py` needs a complete response before any of it can be trusted, so
+showing tokens as they arrive would mean showing text that may be retracted. The wait is spent on
+stage labels instead - which are also the honest thing to show, because the stage breakdown is
+itself the argument: retrieval decides what may be said and costs tens of milliseconds, while the
+two model calls cost seconds.
+
+**Numbers are rendered straight off `RecipeFact` and never re-rounded.** `context.py` rounds once,
+before the prompt and the guardrail both see the values, so the screen agrees with the check by
+construction. Formatting a figure differently here would put a number on the page that the
+guardrail never approved.
+
+**The caveats are structural, not editorial.** A fluent answer can hide a truncated ingredient
+list or a stand-in price. They are shown from `published.py` whether or not the prose mentions
+them.
+
+Run:  uv run streamlit run src/pantryiq/serving/app.py
+"""
+from __future__ import annotations
+
+import duckdb
+import streamlit as st
+
+from pantryiq.agent.claude import get_client
+from pantryiq.agent.retrieval import DEFAULT_DB as GOLD_DB
+from pantryiq.serving import published
+from pantryiq.serving.answer import (
+    Answered,
+    ServingError,
+    answer_question,
+    plan_week,
+    startup_problem,
+)
+
+# A public URL in front of a metered API key. Neither is a security boundary — a determined
+# visitor can clear session state — but together they bound the cost of ordinary traffic.
+MAX_QUESTION_CHARS = 300
+MAX_QUESTIONS_PER_SESSION = 20
+
+EXAMPLES = (
+    "What can I make with chicken, rice and onions?",
+    "I want a vegetarian dinner under 500 calories",
+    "What can I cook with unobtainium and moon cheese?",
+)
+
+STAGE_LABELS = {
+    "parsing": "Reading the question into a filter (Claude)",
+    "retrieving": "Searching the warehouse (SQL, no model)",
+    "answering": "Writing the answer, then checking every number in it",
+    "selecting": "Choosing the week in code",
+    "narrating": "Describing the plan, then checking every number in it",
+}
+
+st.set_page_config(page_title="PantryIQ", page_icon="🥫", layout="wide")
+
+
+@st.cache_resource
+def claude():
+    """One client per server process. Built here so its cost is not charged to a question."""
+    return get_client()
+
+
+@st.cache_data
+def provenance() -> dict | None:
+    """The stamp `gold/publish.py` writes into the artifact — which build is being served."""
+    try:
+        con = duckdb.connect(str(GOLD_DB), read_only=True)
+    except Exception:  # noqa: BLE001 - provenance is a nicety; its absence must not blank the app
+        return None
+    try:
+        row = con.execute(
+            "SELECT published_at, git_sha, gold_row_counts FROM gold.pipeline_run LIMIT 1"
+        ).fetchone()
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        con.close()
+    if row is None:
+        return None
+    return {"published_at": row[0], "git_sha": row[1], "row_counts": row[2]}
+
+
+def table(headers: tuple[str, ...], rows) -> None:
+    """A markdown table.
+
+    Not `st.table`/`st.dataframe`: those route a list of dicts through pandas, which hands the
+    strings to pyarrow, which **segfaulted** on this pandas 3.0.5 / pyarrow 25.0.0 pair inside
+    Streamlit's script thread — a hard crash, not an exception, so no error boundary would have
+    caught it in production. Nothing on this page is larger than eight rows or interactive, so the
+    dataframe stack was buying nothing and risking the whole page.
+    """
+    rule = "|" + "|".join("---" for _ in headers) + "|"
+    body = "\n".join("| " + " | ".join(str(cell) for cell in row) + " |" for row in rows)
+    st.markdown("\n".join(["| " + " | ".join(headers) + " |", rule, body]))
+
+
+def money(value: float | None, coverage: float | None) -> str:
+    """A partial cost is a floor. Saying "$5.43" for three of five priced ingredients is a claim
+    about the dish nobody measured — `generate.py`'s system prompt rule 7 in the UI's own voice."""
+    if value is None:
+        return "not priced"
+    if coverage is not None and coverage < 1.0:
+        return f"at least ${value:,.2f}"
+    return f"${value:,.2f}"
+
+
+def render_verdict(result: Answered) -> None:
+    """The badge. Four states, because `regenerated` alone conflates two of them."""
+    checked = result.verdict.checked
+    if not result.verdict.passed:
+        st.error(
+            f"**Guardrail FAIL** — of {checked} numeric claims, these trace back to nothing in "
+            f"the retrieved data: {', '.join(f'{n:,g}' for n in result.verdict.unsupported)}"
+        )
+    elif result.fell_back:
+        st.warning(
+            f"**Guardrail rejected two drafts.** Rather than show an unverifiable answer, this "
+            f"is the warehouse data stated directly. {checked} numeric claims checked."
+        )
+    elif result.regenerated:
+        st.warning(
+            f"**Guardrail rejected the first draft**, and the regenerated one passed on "
+            f"{checked} numeric claims. Every figure above traces to the retrieved data."
+        )
+    else:
+        st.success(
+            f"**Guardrail PASS** — {checked} numeric claims checked, every one traced back to "
+            f"the data below. Nothing here came from the model's own knowledge."
+        )
+    if result.log_error:
+        st.caption(f"Not written to the query log: {result.log_error}")
+
+
+def render_timings(result: Answered) -> None:
+    spans = "  ·  ".join(f"{STAGE_LABELS.get(name, name).split(' (')[0].lower()} "
+                         f"**{ms:,.0f} ms**" for name, ms in result.timings)
+    st.caption(f"{spans}  ·  total **{result.latency_ms:,.0f} ms**")
+
+
+def render_ledger(result: Answered) -> None:
+    """Everything the answer was allowed to say. Values come off `RecipeFact` unchanged."""
+    recipes = result.context.recipes
+    if not recipes:
+        st.info("Retrieval returned nothing, so the answer had no facts to draw on at all.")
+        return
+
+    st.markdown(f"#### What the answer was allowed to say — {len(recipes)} recipes")
+    st.caption(
+        "Ranked by how many of your pantry items each uses, ties broken on trust score. "
+        "The model saw exactly this and nothing else."
+    )
+
+    for recipe in recipes:
+        with st.container(border=True):
+            left, right = st.columns([3, 2])
+            with left:
+                st.markdown(f"**{recipe.title or recipe.recipe_id}**")
+                if recipe.matched:
+                    st.caption(f"uses: {', '.join(recipe.matched)}")
+                if recipe.missing:
+                    st.caption(f"missing: {', '.join(recipe.missing)}")
+                if recipe.tags:
+                    st.caption(f"tagged: {', '.join(recipe.tags)}")
+
+                kcal = ("not weighed" if recipe.total_kcal is None
+                        else f"{recipe.total_kcal:,} kcal for the whole dish")
+                st.write(
+                    f"{kcal} — {recipe.counted_ingredients} of {recipe.ingredient_count} "
+                    f"ingredients weighed"
+                    + ("" if recipe.counted_ingredients == recipe.ingredient_count
+                       else ", so this is an undercount")
+                )
+                per_serving = ("no per-serving figure is published for this recipe"
+                               if recipe.kcal_per_serving is None
+                               else f"{recipe.kcal_per_serving:,} kcal per serving")
+                st.caption(
+                    f"{money(recipe.cost_total_usd, recipe.cost_coverage)} · {per_serving}"
+                )
+            with right:
+                st.caption(f"data_trust_score  **{recipe.data_trust_score:.2f}**")
+                st.progress(min(max(recipe.data_trust_score, 0.0), 1.0))
+                st.caption(f"nutrition coverage  **{recipe.nutrition_coverage:.2f}**")
+                st.progress(min(max(recipe.nutrition_coverage, 0.0), 1.0))
+
+
+def run_question(question: str) -> None:
+    """One question, start to finish, with the stage shown while it runs."""
+    with st.status("Working…", expanded=True) as status:
+        def on_stage(name: str) -> None:
+            status.update(label=STAGE_LABELS.get(name, name))
+
+        try:
+            result = answer_question(question, client=claude(), on_stage=on_stage)
+        except ServingError as exc:
+            status.update(label="Could not answer that", state="error")
+            st.error(str(exc))
+            return
+        status.update(label=f"Answered in {result.latency_ms / 1000:,.1f} s", state="complete")
+
+    st.markdown(result.text)
+    render_verdict(result)
+    render_timings(result)
+    render_ledger(result)
+
+
+def ask_tab() -> None:
+    st.markdown("#### Ask about what is in your kitchen")
+    asked = st.session_state.get("asked", 0)
+
+    with st.form("ask", clear_on_submit=False):
+        question = st.text_input(
+            "Your question", placeholder=EXAMPLES[0], max_chars=MAX_QUESTION_CHARS,
+            label_visibility="collapsed", value=st.session_state.get("question", ""),
+        )
+        submitted = st.form_submit_button("Ask", type="primary")
+
+    columns = st.columns(len(EXAMPLES))
+    for column, example in zip(columns, EXAMPLES, strict=True):
+        if column.button(example, use_container_width=True):
+            st.session_state["question"] = example
+            st.rerun()
+
+    if not submitted or not question.strip():
+        return
+    if asked >= MAX_QUESTIONS_PER_SESSION:
+        st.warning(
+            f"This demo allows {MAX_QUESTIONS_PER_SESSION} questions per session — the API key "
+            "behind it is metered. Reload the page to start a new one."
+        )
+        return
+
+    st.session_state["asked"] = asked + 1
+    run_question(question.strip())
+
+
+def plan_tab() -> None:
+    st.markdown("#### Plan a week, solved in code")
+    st.caption(
+        "The selection and the arithmetic happen in Python and are verified before Claude sees "
+        "them; the model only describes a decision already made. It plans on recipe **totals** — "
+        f"only {published.COMPLETE_COST_N} recipes have both complete nutrition and complete "
+        "cost, and how many people a dish feeds is the cook's judgement, not ours."
+    )
+
+    left, middle, right = st.columns(3)
+    budget = left.number_input("Budget (USD)", min_value=5.0, max_value=500.0, value=50.0, step=5.0)
+    kcal = middle.number_input("Calories per day", min_value=500.0, max_value=5000.0,
+                               value=2000.0, step=100.0)
+    days = right.number_input("Days", min_value=1, max_value=14, value=7, step=1)
+
+    if not st.button("Plan it", type="primary"):
+        return
+
+    with st.status("Working…", expanded=True) as status:
+        def on_stage(name: str) -> None:
+            status.update(label=STAGE_LABELS.get(name, name))
+
+        try:
+            week = plan_week(float(budget), float(kcal), int(days), client=claude(),
+                             on_stage=on_stage)
+        except ServingError as exc:
+            status.update(label="Could not plan that", state="error")
+            st.error(str(exc))
+            return
+        status.update(label="Planned", state="complete")
+
+    plan = week.plan
+    if week.violations:
+        st.error("The plan breaks its own constraints: " + "; ".join(week.violations))
+    elif len(plan.recipes) < plan.days:
+        st.warning(
+            f"Only {len(plan.recipes)} of {plan.days} days could be filled without repeating a "
+            "recipe or exceeding the budget. A short week is an honest answer."
+        )
+    else:
+        st.success(
+            f"Constraints verified in code before anything was written: "
+            f"${plan.total_cost:,.2f} of ${plan.budget_usd:,.2f}, no day above "
+            f"{plan.kcal_per_day:,.0f} kcal."
+        )
+
+    table(("day", "recipe", "kcal", "cost"),
+          [(index, recipe.title or recipe.recipe_id, f"{recipe.total_kcal:,.0f}",
+            f"${recipe.cost_total_usd:,.2f}")
+           for index, recipe in enumerate(plan.recipes, 1)])
+
+    st.markdown(week.narration.text)
+    render_verdict(week.narration)
+    render_timings(week.narration)
+
+
+def how_tab() -> None:
+    st.markdown("#### The headline is entity resolution, not the chat")
+    st.write(
+        f"{published.INGREDIENT_LINES} free-text ingredient lines from {published.RECIPES} "
+        f"recipes, reduced to {published.DISTINCT_STRINGS} distinct strings and resolved against "
+        f"{published.USDA_ENTITIES} canonical USDA food entities. \"2 cups flour, sifted\" has to "
+        "become a specific USDA food before anything downstream can be true. That is the hard "
+        "part, and it is measured rather than asserted."
+    )
+    table(("measured", "per unique string", "per occurrence"), published.ENTITY_RESOLUTION)
+    st.caption(
+        f"The resolver commits to an entity for {published.RESOLVER_COMMITS} of strings and "
+        f"declines on {published.RESOLVER_DECLINES} rather than guessing, because a wrong match "
+        f"silently produces wrong nutrition where an honest gap does not. Accuracy is conditional "
+        f"on not declining, so neither column is quotable alone. {published.LLM_LABELS} gold "
+        f"labels were AI-produced: these measure agreement with those labels, not with truth."
+    )
+
+    st.divider()
+    st.markdown("#### Four stages, and only two involve a model")
+    table(("stage", "who decides", "what it does"), published.PIPELINE)
+    st.caption(
+        "Retrieval sitting outside the model's control is what makes \"it can only speak from "
+        "verified data\" checkable rather than aspirational. The guardrail then extracts every "
+        "number from the response and requires each to trace back to a retrieved value — in "
+        "code, not by asking another model."
+    )
+
+    st.divider()
+    st.markdown("#### The guardrail, measured against deliberate sabotage")
+    table(("what was measured", "result"), published.GUARDRAIL)
+    st.caption(
+        "Nine classes of fabrication were injected into real answers and the guardrail was scored "
+        "on how many it rejected. An earlier version of this table claimed 100%; that figure was "
+        "a tautology — the harness used the same predicate to plant an error and to judge it "
+        "caught. On an honest denominator the old rule scored 40%."
+    )
+
+    st.divider()
+    st.markdown("#### What the warehouse can and cannot answer")
+    table(("what was measured", "result"), published.COVERAGE)
+    st.caption(
+        "Coverage compounds: a recipe needs every line weighed, so a per-line rate of "
+        f"{published.LINES_WEIGHED} leaves only {published.COMPLETE_NUTRITION} of recipes "
+        "complete. Dietary tags: "
+        + ", ".join(f"{name} {count}" for name, count in published.TAGS) + "."
+    )
+
+    st.divider()
+    st.markdown("#### Read these before quoting anything")
+    for title, body in published.CAVEATS:
+        with st.expander(title):
+            st.write(body)
+
+
+def sidebar() -> None:
+    with st.sidebar:
+        st.markdown("### PantryIQ")
+        st.caption(
+            "A verified recipe data platform with a thin AI layer that can only speak from it."
+        )
+        stamp = provenance()
+        if stamp:
+            st.caption(
+                f"Serving the Gold build published **{stamp['published_at']:%Y-%m-%d %H:%M}** "
+                f"from commit `{stamp['git_sha']}`."
+            )
+        st.divider()
+        st.markdown("**Known limitations**")
+        for title, body in published.CAVEATS:
+            with st.expander(title):
+                st.write(body)
+        st.divider()
+        st.caption(
+            "Single session: no accounts, no history, nothing stored about you. Questions and "
+            "the facts retrieved for them are logged so any past answer stays checkable."
+        )
+
+
+def main() -> None:
+    problem = startup_problem()
+    if problem:
+        st.title("PantryIQ")
+        st.error(problem)
+        st.stop()
+
+    sidebar()
+    st.title("PantryIQ")
+    st.caption(
+        "Ask about what is in your kitchen. Every number in the answer is checked against the "
+        "warehouse before you see it."
+    )
+    ask, plan, how = st.tabs(["Ask", "Plan a week", "How this works"])
+    with ask:
+        ask_tab()
+    with plan:
+        plan_tab()
+    with how:
+        how_tab()
+
+
+# Streamlit executes this file as `__main__`, so the guard is a no-op in production — but without
+# it, merely importing the module to reach a helper runs the whole app against whatever Streamlit
+# context happens to be current. In a test process that means a half-built page and a form left
+# open, which then breaks the next real run. Found exactly that way.
+if __name__ == "__main__":
+    main()

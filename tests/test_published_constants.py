@@ -11,8 +11,14 @@ require editing this file — that edit is the point, and it is what makes a hea
 deliberate rather than accidental.
 """
 import inspect
+import re
+from pathlib import Path
 
 from pantryiq.er import abstain, candidates, evaluate, gold, nutrition, relabel, resolve
+from pantryiq.serving import published
+
+DOCS = (Path(__file__).resolve().parents[1] / "README.md",
+        Path(__file__).resolve().parents[1] / "docs" / "er_metrics.md")
 
 
 def test_the_equivalence_band_is_ten_percent_and_the_bands_agree():
@@ -79,3 +85,49 @@ def test_wilson_matches_the_hand_computed_interval_at_n_thirty():
 def test_the_low_confidence_flag_threshold():
     """The cut that decides `flagged` in the entity map, quoted in §8 and §11."""
     assert resolve.LOW_CONFIDENCE == 0.40
+
+
+def _figures() -> list[tuple[str, str]]:
+    """Every (constant, value) in `published.py` that states a quantity."""
+    found = []
+    for name in dir(published):
+        if name.startswith("_"):
+            continue
+        value = getattr(published, name)
+        if isinstance(value, str):
+            found.append((name, value))
+        elif isinstance(value, tuple):
+            for row in value:
+                # (label, result) and (label, per-string, per-occurrence) rows: the label is prose,
+                # every later cell is a figure.
+                if isinstance(row, tuple):
+                    found.extend((name, str(cell)) for cell in row[1:]
+                                 if any(char.isdigit() for char in str(cell)))
+    return found
+
+
+def test_every_number_the_web_app_shows_appears_in_a_document():
+    """The screen is the fourth surface quoting these figures, after the README, the journal and
+    er_metrics — and the first three have already drifted apart from each other (the guardrail's
+    retracted 100% survived in the journal for 140 lines; the test count reads four different
+    values). A screen that quietly disagrees with the write-up is the same failure with a wider
+    audience.
+
+    So `published.py` may only state a number that is already written down. Adding one to the app
+    means adding it to a document first, which is the point: the doc is the source and the screen
+    is a view of it.
+    """
+    dashes = str.maketrans({"–": "-", "—": "-", "−": "-"})
+    corpus = "\n".join(path.read_text() for path in DOCS).translate(dashes)
+
+    unsourced = []
+    for name, value in _figures():
+        # Intervals, percentages, then bare counts — the coarsest form last so "[60.2, 78.1]" is
+        # matched whole rather than as two unrelated numbers.
+        for token in re.findall(r"\[[\d., ]+\]|[\d,.]+%|\d[\d,]*", value):
+            if token in ("1.0", "0.8"):  # coverage thresholds, pinned by test_retrieval instead
+                continue
+            if token.translate(dashes) not in corpus:
+                unsourced.append(f"{name} = {value!r}  (no source for {token!r})")
+
+    assert not unsourced, "figures on screen that no document states:\n  " + "\n  ".join(unsourced)
