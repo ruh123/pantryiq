@@ -39,16 +39,19 @@ from pantryiq.serving.answer import (
     plan_week,
     startup_problem,
 )
+from pantryiq.serving.style import CSS, meter, stat_tile
 
 # A public URL in front of a metered API key. Neither is a security boundary — a determined
 # visitor can clear session state — but together they bound the cost of ordinary traffic.
 MAX_QUESTION_CHARS = 300
 MAX_QUESTIONS_PER_SESSION = 20
 
+# (chip, question). The chips are short so the row keeps one height — the full questions wrapped
+# to two lines and left the row ragged.
 EXAMPLES = (
-    "What can I make with chicken, rice and onions?",
-    "I want a vegetarian dinner under 500 calories",
-    "What can I cook with unobtainium and moon cheese?",
+    ("Chicken, rice, onions", "What can I make with chicken, rice and onions?"),
+    ("Vegetarian under 500 kcal", "I want a vegetarian dinner under 500 calories"),
+    ("Something we don't stock", "What can I cook with unobtainium and moon cheese?"),
 )
 
 STAGE_LABELS = {
@@ -159,36 +162,38 @@ def render_ledger(result: Answered) -> None:
     )
 
     for recipe in recipes:
-        with st.container(border=True):
-            left, right = st.columns([3, 2])
-            with left:
-                st.markdown(f"**{recipe.title or recipe.recipe_id}**")
-                if recipe.matched:
-                    st.caption(f"uses: {', '.join(recipe.matched)}")
-                if recipe.missing:
-                    st.caption(f"missing: {', '.join(recipe.missing)}")
-                if recipe.tags:
-                    st.caption(f"tagged: {', '.join(recipe.tags)}")
+        kcal = ("not weighed" if recipe.total_kcal is None
+                else f"{recipe.total_kcal:,} kcal for the whole dish")
+        weighed = (f"{recipe.counted_ingredients} of {recipe.ingredient_count} "
+                   "ingredients weighed")
+        if recipe.counted_ingredients != recipe.ingredient_count:
+            weighed += ", so this is an undercount"
+        per_serving = ("no per-serving figure is published for this recipe"
+                       if recipe.kcal_per_serving is None
+                       else f"{recipe.kcal_per_serving:,} kcal per serving")
+        sub = []
+        if recipe.matched:
+            sub.append(f"uses {', '.join(recipe.matched)}")
+        if recipe.missing:
+            sub.append(f"missing {', '.join(recipe.missing)}")
+        tags = "".join(f'<span class="rc-tag">{tag}</span>' for tag in recipe.tags)
 
-                kcal = ("not weighed" if recipe.total_kcal is None
-                        else f"{recipe.total_kcal:,} kcal for the whole dish")
-                st.write(
-                    f"{kcal} — {recipe.counted_ingredients} of {recipe.ingredient_count} "
-                    f"ingredients weighed"
-                    + ("" if recipe.counted_ingredients == recipe.ingredient_count
-                       else ", so this is an undercount")
-                )
-                per_serving = ("no per-serving figure is published for this recipe"
-                               if recipe.kcal_per_serving is None
-                               else f"{recipe.kcal_per_serving:,} kcal per serving")
-                st.caption(
-                    f"{money(recipe.cost_total_usd, recipe.cost_coverage)} · {per_serving}"
-                )
-            with right:
-                st.caption(f"data_trust_score  **{recipe.data_trust_score:.2f}**")
-                st.progress(min(max(recipe.data_trust_score, 0.0), 1.0))
-                st.caption(f"nutrition coverage  **{recipe.nutrition_coverage:.2f}**")
-                st.progress(min(max(recipe.nutrition_coverage, 0.0), 1.0))
+        left, right = st.columns([3, 2], gap="medium")
+        with left:
+            st.markdown(
+                f'<div class="rc-title">{recipe.title or recipe.recipe_id}</div>'
+                f'<div class="rc-sub">{" · ".join(sub) or "&nbsp;"}</div>'
+                f'<div class="rc-fact"><b>{kcal}</b> — {weighed}</div>'
+                f'<div class="rc-fact">{money(recipe.cost_total_usd, recipe.cost_coverage)}'
+                f' · {per_serving}</div>'
+                f'<div style="margin-top:.35rem">{tags}</div>',
+                unsafe_allow_html=True)
+        with right:
+            st.markdown(
+                meter("data_trust_score", recipe.data_trust_score)
+                + meter("nutrition coverage", recipe.nutrition_coverage, severity=True),
+                unsafe_allow_html=True)
+        st.divider()
 
 
 def run_question(question: str) -> None:
@@ -205,30 +210,54 @@ def run_question(question: str) -> None:
             return
         status.update(label=f"Answered in {result.latency_ms / 1000:,.1f} s", state="complete")
 
-    st.markdown(result.text)
+    st.markdown(f'<div class="answer">\n\n{result.text}\n\n</div>', unsafe_allow_html=True)
     render_verdict(result)
     render_timings(result)
     render_ledger(result)
 
 
+def stage_strip() -> None:
+    """The four stages, shown while the page is otherwise idle.
+
+    It fills the space under the question box, and it is the argument the product is making:
+    retrieval decides what may be said and no model touches it. Two of the four are code.
+    """
+    cards = []
+    for index, (name, who, what) in enumerate(published.PIPELINE, 1):
+        css = "who-model" if who == "Claude" else "who-code"
+        cards.append(
+            f'<div class="stage"><div class="stage-n">STEP {index}</div>'
+            f'<div class="stage-name">{name}</div>'
+            f'<span class="stage-who {css}">{who}</span>'
+            f'<div class="stage-what">{what}</div></div>')
+    st.markdown("#### How an answer gets made")
+    st.markdown('<div class="stages">' + "".join(cards) + "</div>", unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="stamp" style="margin-top:.9rem">Only steps 1 and 3 involve a model, and '
+        f"neither chooses the facts. Every number in the finished answer is traced back to what "
+        f"step 2 returned — {published.GUARDRAIL_CAUGHT} deliberately injected fabrications were "
+        f"caught this way ({published.GUARDRAIL_CATCH_RATE}).</div>", unsafe_allow_html=True)
+
+
 def ask_tab() -> None:
-    st.markdown("#### Ask about what is in your kitchen")
     asked = st.session_state.get("asked", 0)
 
-    with st.form("ask", clear_on_submit=False):
-        question = st.text_input(
-            "Your question", placeholder=EXAMPLES[0], max_chars=MAX_QUESTION_CHARS,
+    with st.form("ask", clear_on_submit=False, border=False):
+        box, send = st.columns([6, 1], vertical_alignment="bottom")
+        question = box.text_input(
+            "Your question", placeholder=EXAMPLES[0][1], max_chars=MAX_QUESTION_CHARS,
             label_visibility="collapsed", value=st.session_state.get("question", ""),
         )
-        submitted = st.form_submit_button("Ask", type="primary")
+        submitted = send.form_submit_button("Ask", type="primary", use_container_width=True)
 
-    columns = st.columns(len(EXAMPLES))
-    for column, example in zip(columns, EXAMPLES, strict=True):
-        if column.button(example, use_container_width=True):
-            st.session_state["question"] = example
+    columns = st.columns(len(EXAMPLES) + 1)
+    for column, (chip, full) in zip(columns, EXAMPLES, strict=False):
+        if column.button(chip, use_container_width=True):
+            st.session_state["question"] = full
             st.rerun()
 
     if not submitted or not question.strip():
+        stage_strip()
         return
     if asked >= MAX_QUESTIONS_PER_SESSION:
         st.warning(
@@ -353,30 +382,58 @@ def how_tab() -> None:
 
 
 def sidebar() -> None:
+    """Provenance and scope. The caveats used to live here and dominated the first screen —
+    eight identical grey accordions, making the most defensive part of the product the loudest
+    thing on it. They belong with the rest of the measurement story, in the third tab."""
     with st.sidebar:
         st.markdown("### PantryIQ")
-        st.caption(
-            "A verified recipe data platform with a thin AI layer that can only speak from it."
-        )
+        st.markdown(
+            '<div class="stamp">A verified recipe data platform with a thin AI layer that can '
+            "only speak from it.</div>", unsafe_allow_html=True)
         stamp = provenance()
         if stamp:
-            st.caption(
-                f"Serving the Gold build published **{stamp['published_at']:%Y-%m-%d %H:%M}** "
-                f"from commit `{stamp['git_sha']}`."
-            )
+            st.markdown(
+                f'<div class="stamp" style="margin-top:.8rem">Serving the Gold build published '
+                f"<b>{stamp['published_at']:%Y-%m-%d %H:%M}</b><br>from commit "
+                f"<code>{stamp['git_sha']}</code></div>", unsafe_allow_html=True)
         st.divider()
-        st.markdown("**Known limitations**")
-        for title, body in published.CAVEATS:
-            with st.expander(title):
-                st.write(body)
-        st.divider()
-        st.caption(
-            "Single session: no accounts, no history, nothing stored about you. Questions and "
-            "the facts retrieved for them are logged so any past answer stays checkable."
-        )
+        st.markdown(
+            f'<div class="stamp"><b>Scope.</b> A {published.RECIPES}-recipe subset of RecipeNLG, '
+            f"resolved against {published.USDA_ENTITIES} USDA foods. Prices are a curated "
+            "stand-in, not live pricing. Every limitation is listed under "
+            "<b>How this works</b>.</div>", unsafe_allow_html=True)
+        st.markdown(
+            '<div class="stamp" style="margin-top:.8rem">No accounts, no history, nothing stored '
+            "about you. Questions and the facts retrieved for them are logged so any past answer "
+            "stays checkable.</div>", unsafe_allow_html=True)
+
+
+def kpi_row() -> None:
+    """The four figures the project is judged on, on screen before anything is asked.
+
+    §2 of the brief: lead with the entity-resolution problem and the metrics, not the chat UI.
+    The landing view previously opened on an empty question box and said nothing about what the
+    project had actually measured. A KPI row is the right form for four standalone numbers —
+    they share no scale, so a chart comparing them would invite a comparison that means nothing.
+
+    The fourth tile is the limitation, not an achievement. It is here on purpose.
+    """
+    st.markdown(
+        '<div class="kpi-row">'
+        + stat_tile("Ingredient lines resolved", published.INGREDIENT_LINES,
+                    f"free text to {published.USDA_ENTITIES} canonical USDA entities")
+        + stat_tile("Nutrition match, per occurrence", "81.0%",
+                    "within 10% of the gold label · conditional on not declining")
+        + stat_tile("Fabrications caught", published.GUARDRAIL_CATCH_RATE,
+                    f"{published.GUARDRAIL_CAUGHT} injected errors · 0 genuine false positives")
+        + stat_tile("Recipes fully weighed", published.COMPLETE_NUTRITION,
+                    f"{published.COMPLETE_NUTRITION_N} of {published.RECIPES} — coverage "
+                    "compounds, and this is the honest ceiling")
+        + "</div>", unsafe_allow_html=True)
 
 
 def main() -> None:
+    st.markdown(CSS, unsafe_allow_html=True)
     problem = startup_problem()
     if problem:
         st.title("PantryIQ")
@@ -385,10 +442,11 @@ def main() -> None:
 
     sidebar()
     st.title("PantryIQ")
-    st.caption(
-        "Ask about what is in your kitchen. Every number in the answer is checked against the "
-        "warehouse before you see it."
-    )
+    st.markdown(
+        '<div class="stamp" style="font-size:.85rem">Free-text recipe ingredients resolved to '
+        "canonical USDA foods, with a deterministic check on every number the AI writes.</div>",
+        unsafe_allow_html=True)
+    kpi_row()
     ask, plan, how = st.tabs(["Ask", "Plan a week", "How this works"])
     with ask:
         ask_tab()

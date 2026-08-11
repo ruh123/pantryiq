@@ -1,0 +1,17 @@
+# Pinned to light. The page draws its own surfaces, ink and meter fills from the palette in
+# docs (chart surface #fcfcfb, page plane #f9f9f7), and those hexes are only correct against a
+# light background — inheriting a viewer's dark preference would leave hand-styled marks on a
+# dark plane. A selected dark mode would mean a second validated set of steps; it is not built,
+# so the theme is fixed rather than half-supported.
+[theme]
+base = "light"
+primaryColor = "#2a78d6"
+backgroundColor = "#fcfcfb"
+secondaryBackgroundColor = "#f4f3ef"
+textColor = "#0b0b0b"
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
