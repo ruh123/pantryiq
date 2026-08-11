@@ -173,10 +173,16 @@ def render_ledger(result: Answered) -> None:
         return
 
     st.markdown(f"#### What the answer was allowed to say — {len(recipes)} recipes")
+    # The ranking sentence has to match the query that produced it: with a dish named, every row
+    # matched the title and there may be no pantry terms at all, so claiming a pantry ranking
+    # would describe a rule that did not run.
+    ranking = ("Ranked by how many of your pantry items each uses, ties broken on trust score."
+               if result.context.query.pantry else
+               "Every one matches the dish you named; ranked by how completely we could verify "
+               "the recipe.")
     st.caption(
-        "Ranked by how many of your pantry items each uses, ties broken on trust score. "
-        "The model saw exactly this and nothing else — the cooking methods below are read "
-        "separately, for you, and are never shown to it."
+        f"{ranking} The model saw exactly this and nothing else — the cooking methods below are "
+        "read separately, for you, and are never shown to it."
     )
 
     # One query for every card. The method is fetched here rather than inside the loop because

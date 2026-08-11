@@ -217,3 +217,51 @@ def test_a_recipe_sitting_exactly_on_a_stated_kcal_bound_is_kept(db):
 def test_the_limit_is_respected_exactly(db):
     """`LIMIT ?` -> `LIMIT ? + 1` survived: no test constrained how many rows come back."""
     assert len(retrieve(PantryQuery(pantry=("egg",), min_coverage=0.0, limit=2), db)) == 2
+
+
+# --- dish lookup by title -------------------------------------------------------------------------
+
+
+def test_a_dish_matches_the_title_not_the_ingredient_lines(fixture_warehouse):
+    """The gap this closed, and the fixture demonstrates it exactly: nine of the ten recipes
+    contain onion as an *ingredient*, but only one is called "Onion Dip". `pantry` searches the
+    ingredient lines, so a dish name there matches nearly everything or nothing. Before `dish`
+    existed the parser was told to drop the name, and "chicken pot pie" returned taco sauce."""
+    by_title = retrieve(PantryQuery(dish="onion dip", min_coverage=0.0), db_path=fixture_warehouse)
+    by_pantry = retrieve(PantryQuery(pantry=("onion",), min_coverage=0.0),
+                         db_path=fixture_warehouse)
+
+    assert [row.title for row in by_title] == ["Onion Dip"]
+    assert len(by_pantry) > len(by_title)
+
+
+def test_every_word_of_the_dish_must_appear(fixture_warehouse):
+    """Otherwise "chicken pot pie" matches every pie in the corpus."""
+    two_words = retrieve(PantryQuery(dish="onion dip", min_coverage=0.0),
+                         db_path=fixture_warehouse)
+    one_word = retrieve(PantryQuery(dish="onion", min_coverage=0.0), db_path=fixture_warehouse)
+
+    assert len(two_words) < len(one_word)
+    assert all("onion" in (row.title or "").lower() for row in one_word)
+
+
+def test_the_match_is_case_insensitive(fixture_warehouse):
+    """Titles are scraped in title case; a user types lowercase."""
+    assert retrieve(PantryQuery(dish="ONION DIP", min_coverage=0.0),
+                    db_path=fixture_warehouse)[0].title == "Onion Dip"
+
+
+def test_a_dish_that_sanitises_to_nothing_returns_nothing_rather_than_everything(fixture_warehouse):
+    """The rule `pantry` already had. A dish of ".*" must not become "no dish, show the corpus" —
+    that reads as comprehension the agent does not have."""
+    assert retrieve(PantryQuery(dish=".*", min_coverage=0.0), db_path=fixture_warehouse) == []
+
+
+def test_a_dish_narrows_rather_than_replaces_the_other_filters(fixture_warehouse):
+    """A dish plus a calorie ceiling is a legitimate question, and the ceiling still applies."""
+    unbounded = retrieve(PantryQuery(dish="onion", min_coverage=0.0), db_path=fixture_warehouse)
+    bounded = retrieve(PantryQuery(dish="onion", max_kcal=1.0, min_coverage=0.0),
+                       db_path=fixture_warehouse)
+
+    assert bounded != unbounded
+    assert len(bounded) < len(unbounded)

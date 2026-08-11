@@ -11,7 +11,15 @@ from types import SimpleNamespace
 import pytest
 
 from pantryiq.agent.claude import Refused, injection_paragraph, text_of
-from pantryiq.agent.parse import FILTER_SCHEMA, SYSTEM, TAGS, build_query, parse
+from pantryiq.agent.parse import (
+    DISH_MIN_COVERAGE,
+    FILTER_SCHEMA,
+    SYSTEM,
+    TAGS,
+    build_query,
+    parse,
+)
+from pantryiq.agent.retrieval import DEFAULT_MIN_COVERAGE
 
 
 def fake_client(payload: dict | str, stop_reason: str = "end_turn"):
@@ -58,7 +66,7 @@ def test_the_parser_can_only_emit_a_filter_never_recipe_ids_or_sql():
     assert FILTER_SCHEMA["additionalProperties"] is False
     assert set(FILTER_SCHEMA["properties"]) == set(FILTER_SCHEMA["required"])
     assert set(FILTER_SCHEMA["required"]) == {
-        "pantry", "exclude", "max_kcal", "min_kcal", "kcal_basis", "tags", "max_cost_usd"}
+        "dish", "pantry", "exclude", "max_kcal", "min_kcal", "kcal_basis", "tags", "max_cost_usd"}
 
 
 def test_the_tag_enum_is_closed_in_the_schema_itself():
@@ -113,3 +121,46 @@ def test_the_tag_vocabulary_still_matches_what_gold_publishes(fixture_gold):
         "SELECT DISTINCT tag FROM gold.recipe_tags").fetchall()}
 
     assert published == set(TAGS)
+
+
+# --- dish lookup ----------------------------------------------------------------------------------
+
+
+def test_a_dish_is_its_own_field_and_never_a_pantry_term():
+    """`pantry` matches ingredient TEXT, so "lasagna" there searches for an ingredient called
+    lasagna and finds nothing. Before `dish` existed the system prompt told the model to drop the
+    name entirely, so "chicken pot pie" retrieved on an empty filter and returned taco sauce."""
+    query = build_query(payload(dish="Chicken Pot Pie", pantry=[]))
+
+    assert query.dish == "Chicken Pot Pie"
+    assert query.pantry == ()
+
+
+def test_naming_a_dish_drops_the_coverage_bar():
+    """Measured, not assumed: of 39 recipes titled pot pie only 2 clear 0.8 coverage, and of 68
+    lasagnas only 10. Keeping the bar would answer a request the warehouse can plainly satisfy
+    with "nothing matches". Coverage still travels with every figure."""
+    assert build_query(payload(dish="lasagna")).min_coverage == DISH_MIN_COVERAGE
+    assert DISH_MIN_COVERAGE < DEFAULT_MIN_COVERAGE
+
+
+def test_a_question_with_no_dish_keeps_the_quality_bar():
+    """The bar is the default for nutrition questions and must not be lowered for everyone."""
+    assert build_query(payload(pantry=["chicken"])).min_coverage == DEFAULT_MIN_COVERAGE
+
+
+def test_a_blank_or_missing_dish_is_not_a_dish():
+    """A whitespace dish would sanitise to no patterns and, without this, return zero rows —
+    reading as "we do not have that" for a question that named nothing."""
+    for value in (None, "", "   "):
+        query = build_query(payload(dish=value, pantry=["chicken"]))
+        assert query.dish == ""
+        assert query.min_coverage == DEFAULT_MIN_COVERAGE
+
+
+def test_a_dish_and_a_pantry_can_coexist():
+    """"A chicken pot pie using what I have" is both."""
+    query = build_query(payload(dish="pot pie", pantry=["chicken", "peas"]))
+
+    assert query.dish == "pot pie"
+    assert query.pantry == ("chicken", "peas")

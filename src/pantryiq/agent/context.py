@@ -218,6 +218,10 @@ class AnswerContext:
         return {
             "question": self.question,
             "query": {
+                # `dish` is stored for the same reason as everything else here: the log exists so
+                # a past answer can be re-checked, and a filter missing the field that selected
+                # the recipes cannot reproduce the retrieval.
+                "dish": self.query.dish,
                 "pantry": list(self.query.pantry), "exclude": list(self.query.exclude),
                 "max_kcal": self.query.max_kcal, "min_kcal": self.query.min_kcal,
                 "kcal_basis": self.query.kcal_basis,

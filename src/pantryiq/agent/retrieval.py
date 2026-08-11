@@ -69,6 +69,12 @@ class PantryQuery:
     """What the user asked for, after parsing. Every field is optional but `pantry`."""
 
     pantry: tuple[str, ...] = ()
+    # A dish asked for by name — "chicken pot pie", "lasagna". Matched against the recipe TITLE,
+    # which `pantry` never touches: pantry terms match ingredient lines, so "pot pie" as a pantry
+    # term looks for an ingredient called pot and one called pie. Before this field existed the
+    # parser was instructed to drop dish names entirely, so "chicken pot pie" retrieved on an
+    # empty filter and returned taco sauce.
+    dish: str = ""
     exclude: tuple[str, ...] = ()
     max_kcal: float | None = None
     min_kcal: float | None = None
@@ -129,6 +135,13 @@ def retrieve(query: PantryQuery, db_path: Path | str = DEFAULT_DB) -> list[Candi
     """
     patterns = [pattern for pattern in map(term_pattern, query.pantry) if pattern]
     exclusions = [pattern for pattern in map(term_pattern, query.exclude) if pattern]
+    # Every word of the dish must appear in the title, so "chicken pot pie" does not match every
+    # pie. Same sanitising and the same word-boundary rule as a pantry term — the string is user
+    # text heading for a regex. Titles are 15,000 rows against 112,463 ingredient lines, so this
+    # is the cheap side of the query.
+    dish_patterns = [pattern for pattern in map(term_pattern, query.dish.split()) if pattern]
+    if query.dish.strip() and not dish_patterns:
+        return []
 
     # Naming no ingredients and naming only ingredients we could not read are different requests,
     # and only the first may fall through to the trust ranking below. A term like ".*" sanitises
@@ -157,6 +170,9 @@ def retrieve(query: PantryQuery, db_path: Path | str = DEFAULT_DB) -> list[Candi
     if query.kcal_basis not in ("total", "serving"):
         raise ValueError(f"kcal_basis must be 'total' or 'serving', got {query.kcal_basis!r}")
     kcal_column = "n.kcal_per_serving" if query.kcal_basis == "serving" else "n.total_kcal"
+    title_filter = "".join(
+        ["\n              AND regexp_matches(lower(coalesce(m.title, '')), ?)"] * len(dish_patterns)
+    )
 
     con = duckdb.connect(str(db_path), read_only=True)
     try:
@@ -191,6 +207,10 @@ def retrieve(query: PantryQuery, db_path: Path | str = DEFAULT_DB) -> list[Candi
               -- Every requested tag must be present, not just one: "vegan and gluten-free"
               -- means both. An absent tag is unknown, never a denial (see recipe_tags.sql).
               AND len(list_intersect(coalesce(g.tags, []), ?::VARCHAR[])) = len(?::VARCHAR[])
+              {title_filter}
+            -- With a dish named, every row already matches the title, so trust does the ranking:
+            -- best-measured first. `data_trust_score` is min confidence x coverage, so this puts
+            -- the version of the dish we know most about at the top.
             ORDER BY h.matched_count DESC, n.data_trust_score DESC, h.recipe_id
             LIMIT ?
             """,
@@ -200,8 +220,9 @@ def retrieve(query: PantryQuery, db_path: Path | str = DEFAULT_DB) -> list[Candi
             + [query.min_coverage,
                query.max_kcal, query.max_kcal, query.min_kcal, query.min_kcal,
                query.max_cost_usd, query.max_cost_usd,
-               list(query.tags), list(query.tags),
-               query.limit],
+               list(query.tags), list(query.tags)]
+            + dish_patterns
+            + [query.limit],
         ).fetchall()
     finally:
         con.close()
