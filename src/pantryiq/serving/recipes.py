@@ -59,13 +59,25 @@ def directions_for(recipe_ids, db_path: Path | str = DEFAULT_DB) -> dict[str, tu
         return {}
 
     placeholders = ", ".join("?" for _ in ids)
-    con = duckdb.connect(str(db_path), read_only=True)
+    try:
+        con = duckdb.connect(str(db_path), read_only=True)
+    except duckdb.Error:
+        # The method is a nicety; the checked answer is the product. `startup_problem()` already
+        # refuses to run the app without a Gold file, so a failure *here* is transient — and
+        # taking down an answer that passed the guardrail to report a missing garnish is the
+        # wrong trade. Same posture as the best-effort query log in `answer.py`.
+        #
+        # It is also what keeps the app testable without the corpus: this is a second path to the
+        # database that no façade stub covers, and CI has no Gold file. It broke there first.
+        return {}
     try:
         rows = con.execute(
             f"SELECT recipe_id, directions FROM gold.recipe_meta "  # noqa: S608 - ids are bound
             f"WHERE recipe_id IN ({placeholders})",
             ids,
         ).fetchall()
+    except duckdb.Error:
+        return {}
     finally:
         con.close()
 

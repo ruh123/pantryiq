@@ -130,3 +130,26 @@ def test_the_real_export_carries_a_method_for_the_recipe_that_prompted_this():
 
     assert methods, "no method found for any retrieved recipe"
     assert all(isinstance(steps, tuple) and steps for steps in methods.values())
+
+
+def test_an_unreachable_database_yields_no_method_rather_than_raising(tmp_path):
+    """This is the corpus-free property, and it broke in CI before it was pinned.
+
+    `render_ledger` calls this on every answer, so it is a second path to the database that no
+    façade stub covers — on a checkout without the Gold export it raised an IOException from
+    inside the page. `startup_problem()` already refuses to run the app without that file, so a
+    failure here is transient, and losing a garnish must not lose an answer that passed the
+    guardrail.
+    """
+    assert directions_for(["r1"], db_path=tmp_path / "does-not-exist.duckdb") == {}
+
+
+def test_a_database_without_the_table_also_degrades(tmp_path):
+    """An older export, or one built before `directions` was promoted to Gold."""
+    db = tmp_path / "old-export.duckdb"
+    con = duckdb.connect(str(db))
+    con.execute("CREATE SCHEMA gold")
+    con.execute("CREATE TABLE gold.recipe_meta (recipe_id VARCHAR, title VARCHAR)")
+    con.close()
+
+    assert directions_for(["r1"], db_path=db) == {}
