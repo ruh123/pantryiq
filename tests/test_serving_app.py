@@ -16,7 +16,7 @@ from streamlit.testing.v1 import AppTest
 from pantryiq.agent.guardrail import Verdict
 from pantryiq.serving import published
 from pantryiq.serving.answer import Answered
-from pantryiq.serving.app import MAX_QUESTIONS_PER_SESSION, money
+from pantryiq.serving.app import MAX_QUESTIONS_PER_SESSION, md, money
 from test_context import context_for, make_candidate
 
 APP = "src/pantryiq/serving/app.py"
@@ -248,6 +248,26 @@ def test_a_session_cannot_ask_forever(app):
 
 
 # --- the floor rule, tested directly ---------------------------------------------------------------
+
+
+def test_two_costs_in_one_paragraph_survive_the_markdown_renderer(app):
+    """Streamlit reads `$...$` as inline LaTeX. An answer saying "comes to $33.65 total, leaving
+    $16.35 of your $50 budget" rendered the middle as a serif formula and the amounts vanished.
+    Cost is the figure this app quotes most, so the pairing is a live hazard on every tab."""
+    app["answer"] = an_answer(text="Comes to $33.65 total, leaving $16.35 of your $50 budget.")
+
+    at = ask(AppTest.from_file(APP).run())
+    page = text_of(at)
+
+    for amount in ("33.65", "16.35", "50"):
+        assert amount in page
+    assert "\\$33.65" in page, "dollar signs reached the renderer unescaped"
+
+
+def test_the_escape_is_display_only_and_changes_no_number():
+    """The guardrail checks the unescaped text, so escaping must not alter a value."""
+    assert md("at least $11.05") == "at least \\$11.05"
+    assert md("1,968 kcal") == "1,968 kcal"
 
 
 @pytest.mark.parametrize(("value", "coverage", "expected"), [

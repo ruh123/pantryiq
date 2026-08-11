@@ -105,6 +105,20 @@ def table(headers: tuple[str, ...], rows) -> None:
     st.markdown("\n".join(["| " + " | ".join(headers) + " |", rule, body]))
 
 
+def md(text: str) -> str:
+    """Escape `$` before any model or warehouse text reaches a markdown renderer.
+
+    Streamlit reads `$…$` as inline LaTeX, so two dollar amounts in one paragraph swallow
+    everything between them into a serif formula: "comes to $33.65 total, leaving $16.35 of your
+    $50 budget" rendered as maths. Costs are the one figure this app quotes most, and the pairing
+    is invisible until a paragraph happens to contain two of them.
+
+    Display only — the guardrail checks the unescaped text, so what is verified and what is shown
+    stay the same numbers.
+    """
+    return text.replace("$", "\\$")
+
+
 def money(value: float | None, coverage: float | None) -> str:
     """A partial cost is a floor. Saying "$5.43" for three of five priced ingredients is a claim
     about the dish nobody measured — `generate.py`'s system prompt rule 7 in the UI's own voice."""
@@ -210,7 +224,7 @@ def run_question(question: str) -> None:
             return
         status.update(label=f"Answered in {result.latency_ms / 1000:,.1f} s", state="complete")
 
-    st.markdown(f'<div class="answer">\n\n{result.text}\n\n</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="answer">\n\n{md(result.text)}\n\n</div>', unsafe_allow_html=True)
     render_verdict(result)
     render_timings(result)
     render_ledger(result)
@@ -299,29 +313,30 @@ def plan_tab() -> None:
             status.update(label="Could not plan that", state="error")
             st.error(str(exc))
             return
-        status.update(label="Planned", state="complete")
+        status.update(label=f"Planned in {week.narration.latency_ms / 1000:,.1f} s",
+                      state="complete")
 
     plan = week.plan
     if week.violations:
-        st.error("The plan breaks its own constraints: " + "; ".join(week.violations))
+        st.error(md("The plan breaks its own constraints: " + "; ".join(week.violations)))
     elif len(plan.recipes) < plan.days:
         st.warning(
             f"Only {len(plan.recipes)} of {plan.days} days could be filled without repeating a "
             "recipe or exceeding the budget. A short week is an honest answer."
         )
     else:
-        st.success(
+        st.success(md(
             f"Constraints verified in code before anything was written: "
             f"${plan.total_cost:,.2f} of ${plan.budget_usd:,.2f}, no day above "
             f"{plan.kcal_per_day:,.0f} kcal."
-        )
+        ))
 
     table(("day", "recipe", "kcal", "cost"),
           [(index, recipe.title or recipe.recipe_id, f"{recipe.total_kcal:,.0f}",
-            f"${recipe.cost_total_usd:,.2f}")
+            md(f"${recipe.cost_total_usd:,.2f}"))
            for index, recipe in enumerate(plan.recipes, 1)])
 
-    st.markdown(week.narration.text)
+    st.markdown(md(week.narration.text))
     render_verdict(week.narration)
     render_timings(week.narration)
 
