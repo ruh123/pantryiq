@@ -58,6 +58,20 @@ Three results that shaped the build, each measured rather than assumed:
   occurrence. A threshold fitted for that (not reused from the confidence curve) catches ~62% of
   them, because a wrong match silently produces wrong nutrition where an honest gap does not.
 
+**No resolution calls an LLM.** Every one of the 9,163 strings is resolved by local embeddings
+plus a stored confidence curve — the shipped pipeline makes **zero** model calls to match an
+ingredient. That reads like a cost win and is really a measurement result, so it is reported the
+honest way round: §2.6's Claude adjudicator was **investigated and not built**, because its
+accuracy cannot be honestly scored against an LLM-produced gold set
+([§10](docs/er_metrics.md)). The calibrated confidence "cannot certify correctness; it can flag
+likely-wrong picks", so there is no confident subset to skip adjudication *on* —
+[§7](docs/er_metrics.md) concludes the adjudicator is "required, not an optimization". The 0% is
+what shipped, not what the design wanted.
+
+**Everything here is measured on the ~15,000-recipe subset.** The brief's §4 anticipated scaling
+to 100–500K once the ER metrics were green; that gate was never taken. Every figure on this page
+is a subset figure.
+
 > ⚠️ 282 of the 300 gold labels were produced by an LLM annotator rather than a human. Every
 > number on this page — including `recall@50` below — measures agreement with those labels, not
 > with ground truth. Read [`docs/er_metrics.md`](docs/er_metrics.md) before quoting any of them —
@@ -137,15 +151,79 @@ before quoting anything from Gold ([§14](docs/er_metrics.md)):
 - **The test suite is mutation-swept, and the sweeps keep finding that the tests were the
   problem.** Three sweeps so far; two had harness bugs that made them report success
   unconditionally, both caught by insisting on a passing control. Eight tests have been found
-  that named a property they could not actually fail on. 582 tests, 565 of which run without the
+  that named a property they could not actually fail on. 624 tests, 612 of which run without the
   corpus.
 
-**Still to build** — Phase 5: the web app and deployment.
+**Phase 5 in progress** — the web app is built and the serving layer is packaged; the deployment
+is not done yet, so there is no live URL to link. The app runs locally (see
+[Running the app](#running-the-app)) and reads the same read-only Gold artifact a container would
+ship. Two findings so far:
+
+- **The serving image needs almost none of the pipeline.** The agent package imports exactly three
+  third-party names, so `[project.dependencies]` is now the serving set alone and everything the
+  batch pipeline needs sits in a `pipeline` dependency group. A serving install is **357 MB against
+  1.5 GB**; `sentence-transformers` alone drags in 502 MB of torch that the read path never loads.
+- **Two display bugs that only a screenshot could find.** `st.table` routes through pandas into
+  pyarrow and **segfaulted** — a hard crash, not an exception, so no error boundary would have
+  caught it in production. And Streamlit's markdown reads `$…$` as LaTeX, so two dollar amounts in
+  one paragraph rendered as a serif formula and the amounts vanished. Cost is the figure this app
+  quotes most; the pairing was invisible until a paragraph happened to contain two of them.
 
 (`foodPortions.gramWeight` is absent from the abridged `/foods/list` payload in Bronze, but
 `POST /v1/foods` with `format=full` serves it in ~410 requests — no bulk download needed. USDA's
 `foodCategory` needs its own pass over the same ids, because the portions cache kept only
 `fdcId` and `foodPortions`.)
+
+## Architecture
+
+```mermaid
+flowchart TB
+  R["RecipeNLG<br/>15,000 recipes"]
+  U["USDA FoodData Central<br/>8,187 foods"]
+  B["<b>Bronze · Apache Iceberg</b><br/>raw_recipes · raw_usda_foods<br/><i>immutable, always re-derivable</i>"]
+  ER["<b>Entity resolution</b> — the headline<br/>parse → normalize → block → score → route<br/><i>local embeddings + Jaro-Winkler · no LLM call</i>"]
+  S["<b>Silver · DuckDB + dbt</b><br/>ingredient_entity_map<br/><i>match_method · confidence_score</i>"]
+  GATE{"<b>quality gate</b><br/>dbt tests + Great Expectations"}
+  G["<b>Gold · DuckDB + dbt</b><br/>recipe_nutrition + data_trust_score<br/>recipe_tags · ingredient_costs"]
+
+  subgraph AGENT ["Agent — only steps 1 and 3 involve a model"]
+    direction LR
+    A1["parse<br/><i>Claude</i>"] --> A2["<b>retrieve</b><br/><i>SQL</i>"] --> A3["generate<br/><i>Claude</i>"] --> A4["<b>guardrail</b><br/><i>code</i>"]
+  end
+
+  APP["<b>Streamlit app</b><br/>answer + fact ledger + verdict"]
+
+  R --> B
+  U --> B
+  B --> ER --> S --> GATE
+  GATE -->|pass| G
+  GATE -.->|fail — publish blocked,<br/>previous Gold left intact| S
+  G -->|read-only export| A1
+  A4 --> APP
+```
+
+Airflow orchestrates every arrow up to the export. **The batch pipeline, Airflow and the Iceberg
+catalog run locally by design** — only the app and a read-only copy of Gold are meant to be
+deployed. The quality gate is not decorative: `make prove-gate` injects a 50,000 kcal/100g row and
+asserts that the publish is blocked and `gold.*` is left byte-identical.
+
+## Running the app
+
+```bash
+make gold                                        # build data/pantryiq_gold.duckdb (needs the corpus)
+uv run streamlit run src/pantryiq/serving/app.py # → http://localhost:8501
+```
+
+Needs `ANTHROPIC_API_KEY` in `.env`. If either the Gold file or the key is missing, the app says
+which rather than failing somewhere inside DuckDB. `PANTRYIQ_GOLD_DB` and `PANTRYIQ_LOG_DB`
+override where it reads and writes.
+
+![The app, answering a pantry question](docs/screenshot-ask.png)
+
+Every answer ships with the ledger of facts it was allowed to draw on — coverage, cost floor,
+dietary tags and `data_trust_score` per recipe — and a deterministic verdict on every number in it:
+
+![The fact ledger](docs/screenshot-ledger.png)
 
 ### Asking it something
 
