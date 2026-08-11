@@ -95,6 +95,13 @@ CSS = f"""
   .block-container hr {{ margin: .1rem 0 .75rem; border-color: {HAIRLINE}; }}
   [data-testid="stHorizontalBlock"] {{ margin-bottom: -.4rem; }}
 
+  /* --- method steps --------------------------------------------------------------------- */
+  .step {{ display: flex; gap: .6rem; align-items: baseline; font-size: .84rem; color: {INK_2};
+           line-height: 1.55; margin-bottom: .3rem; }}
+  .step-n {{ flex: 0 0 1.35rem; height: 1.35rem; border-radius: 50%; background: {PLANE};
+             border: 1px solid {HAIRLINE}; color: {MUTED}; font-size: .68rem; font-weight: 620;
+             text-align: center; line-height: 1.3rem; }}
+
   /* --- misc ----------------------------------------------------------------------------- */
   .answer {{ background: {SURFACE}; border: 1px solid {HAIRLINE}; border-radius: 10px;
              padding: .3rem 1.1rem .5rem; margin-bottom: .7rem; }}

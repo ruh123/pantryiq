@@ -26,6 +26,8 @@ Run:  uv run streamlit run src/pantryiq/serving/app.py
 """
 from __future__ import annotations
 
+from html import escape
+
 import duckdb
 import streamlit as st
 
@@ -39,6 +41,7 @@ from pantryiq.serving.answer import (
     plan_week,
     startup_problem,
 )
+from pantryiq.serving.recipes import directions_for
 from pantryiq.serving.style import CSS, meter, stat_tile
 
 # A public URL in front of a metered API key. Neither is a security boundary — a determined
@@ -172,8 +175,13 @@ def render_ledger(result: Answered) -> None:
     st.markdown(f"#### What the answer was allowed to say — {len(recipes)} recipes")
     st.caption(
         "Ranked by how many of your pantry items each uses, ties broken on trust score. "
-        "The model saw exactly this and nothing else."
+        "The model saw exactly this and nothing else — the cooking methods below are read "
+        "separately, for you, and are never shown to it."
     )
+
+    # One query for every card. The method is fetched here rather than inside the loop because
+    # eight connections would cost more than the retrieval that produced these recipes.
+    methods = directions_for([recipe.recipe_id for recipe in recipes])
 
     for recipe in recipes:
         kcal = ("not weighed" if recipe.total_kcal is None
@@ -207,6 +215,22 @@ def render_ledger(result: Answered) -> None:
                 meter("data_trust_score", recipe.data_trust_score)
                 + meter("nutrition coverage", recipe.nutrition_coverage, severity=True),
                 unsafe_allow_html=True)
+
+        steps = methods.get(recipe.recipe_id, ())
+        if steps:
+            with st.expander(f"Method — {len(steps)} steps"):
+                st.markdown(
+                    "".join(f'<div class="step"><span class="step-n">{index}</span>'
+                            f"<span>{escape(step)}</span></div>"
+                            for index, step in enumerate(steps, 1)),
+                    unsafe_allow_html=True)
+                st.caption(
+                    "Scraped text, shown as published. It is not part of what the answer above "
+                    "was checked against — compare it with the ingredient list, because this "
+                    "corpus ships recipes whose ingredients are incomplete."
+                )
+        else:
+            st.caption("No method published for this recipe.")
         st.divider()
 
 

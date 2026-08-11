@@ -100,7 +100,9 @@ models:
               values: ["vegetarian", "vegan", "gluten-free"]
 
   - name: recipe_meta
-    description: Recipe titles and source URLs. `title` is untrusted scraped text.
+    description: >
+      Recipe titles, source URLs and cooking method. `title` and `directions` are both untrusted
+      scraped text.
     columns:
       - name: recipe_id
         description: One row per recipe; the serving layer joins every answer through this.
@@ -109,6 +111,13 @@ models:
         description: >
           Null where the source had none. The agent must render a null as an obvious gap
           rather than an empty name, so this is deliberately not tested for not_null.
+      - name: directions
+        description: >
+          The cooking method, DISPLAY ONLY. It must never enter `AnswerContext` — every number in
+          that object is one the model is permitted to state, and a method's oven temperatures and
+          timings would license figures like 425 and 45 as quotable nutrition. Read on a separate
+          path from the one retrieval feeds. Nullable: a recipe with no method is a gap to show,
+          not a row to drop.
 
   - name: ingredient_costs
     description: Curated stand-in prices. NOT sourced data — see the model docstring.
