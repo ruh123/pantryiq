@@ -5,7 +5,7 @@ step.** No jargon without an explanation. If you read only one document about Pa
 one.
 
 > **This is a living document.** A new section is added at the end of every phase. Last updated
-> **2026-07-31**, after Phase 3.
+> **2026-08-11**, during Phase 5.
 >
 > Other docs, if you want more depth: `er_metrics.md` (every measurement, including the failed
 > ones) · `PantryIQ_Master_Prompt.md` (the locked decisions) · `session_*.md` (day-by-day logs).
@@ -51,7 +51,7 @@ Everything below is about doing those two things and — the part that matters m
 | **Airflow** | Runs the whole pipeline in the right order, on demand, and can retry a step that fails. |
 | **sentence-transformers** | A small AI model that turns text into numbers, so "flour" and "Wheat flour, white" can be compared for *meaning*, not spelling. Runs on this laptop, costs nothing. |
 | **Anthropic Claude** | Used sparingly — for labelling data and judging hard cases, never for arithmetic. |
-| **pytest** + **ruff** | Tests and a code-style checker. 404 tests currently. |
+| **pytest** + **ruff** | Tests and a code-style checker. 624 tests currently. |
 
 **A deliberate choice worth understanding:** the matching is done by a *local* AI model, not by
 calling a paid API for all 9,163 ingredient names. It's free, it's fast, and it runs offline.
@@ -315,7 +315,7 @@ build, and a separate small file for serving.
 ## 9. Where the project stands
 
 ```
-404 tests passing · code style clean · everything committed and pushed
+624 tests passing (612 of them without the recipe data) · code style clean · pushed
 ```
 
 | What we measure | Result | What it means |
@@ -325,6 +325,13 @@ build, and a separate small file for serving.
 | Lines converted to a weight | 63.9% | mass 100%, volume 75%, count 38%, packages 27% |
 | Recipes with *complete* nutrition | **4.7%** | ← the honest limitation |
 | Recipes with complete cost | 0.7% | |
+| Made-up numbers the guardrail catches | **86.5%** (147 of 170) | 0 genuine false alarms in 20 real answers |
+| Recipes tagged vegetarian / vegan / gluten-free | 418 / 61 / 179 | no meat-group ingredient inside any of them |
+| Time to answer a question | 8–13 seconds | misses the under-5s target, and we say so |
+
+Everything above is measured on a **15,000-recipe sample**. The plan allowed for scaling to
+100,000–500,000 once the matching was good enough; we never did, so every number here describes
+the sample rather than the full dataset.
 
 ### The finding that matters most
 
@@ -409,10 +416,17 @@ We then tested it the only honest way: we took 20 real answers and deliberately 
 changed a calorie count, invented a price, made up a serving count, divided a total by servings,
 added a plausible-sounding round number. Then we counted how many the guardrail caught.
 
-| | result |
+> ⚠️ **The two numbers below are wrong and are kept here only so the mistake is visible.** The
+> 100% was a *tautology*: the test harness threw away any corruption the guardrail would have
+> accepted, then counted the rest as caught — so it could only ever print 100%. Scroll to
+> [*"Then we reviewed it all"*](#then-we-reviewed-it-all-and-found-wed-published-two-wrong-numbers)
+> for the honest version. **The real figures: the old rule caught 40%; the rebuilt one catches
+> 86.5% (147 of 170), with 0 genuine false positives.**
+
+| | ~~result~~ **retracted** |
 |---|---|
-| **fabricated numbers caught** | **36 out of 36 (100%)** |
-| **correct answers wrongly blocked** | **0 out of 20 (0%)** |
+| ~~fabricated numbers caught~~ | ~~36 out of 36 (100%)~~ → really **40%**, then **86.5%** rebuilt |
+| ~~correct answers wrongly blocked~~ | ~~0 out of 20 (0%)~~ → really 2 of 20, then 0 genuine |
 | numbers checked in total | 346 (about 17 per answer) |
 
 Both numbers matter. A guardrail that rejects *everything* would catch 100% of lies and be
@@ -451,8 +465,17 @@ recipe is only tagged vegetarian if **every** ingredient is in a category we've 
 unrecognised fails. "BURGER KING, Hamburger" is in "Fast Foods", which isn't on the list, so it
 declines instead of lying.
 
-Result: recipes falsely tagged vegetarian went from 13 to 5, vegan from 9 to 4, gluten-free from
-329 tagged down to 63 (a much smaller but much more trustworthy set).
+~~Result: recipes falsely tagged vegetarian went from 13 to 5, vegan from 9 to 4~~, gluten-free
+from 329 tagged down to 63 (a much smaller but much more trustworthy set).
+
+> ⚠️ **The "13 to 5" and "9 to 4" are wrong twice over**, and are struck through rather than
+> deleted so the error stays visible. They counted recipes whose *title* mentioned meat, not
+> recipes actually tagged wrongly — and the regex that produced them exists nowhere in the code.
+> Counted properly, by looking at what each ingredient actually resolved to, this rule still left
+> **30 of 572 vegetarian recipes (5.2%) and 16 of 134 vegan (11.9%)** falsely tagged — six and
+> four times what we published. Two recipes tagged *vegan* were a ribs recipe and a
+> cocktail-wieners recipe. The fix is described below; the current counts are vegetarian **418**,
+> vegan **61**, gluten-free **179**.
 
 ### The discovery underneath that one
 
@@ -650,7 +673,136 @@ verdict — so any past answer can be re-checked later.
 
 ---
 
+## 12. Phase 5 — The web app (2026-08-07 → in progress)
+
+> **This phase is not finished.** The app is built and runs; the deployment is not done, so there
+> is no public link yet. This section covers what exists, and says plainly what doesn't.
+
+### The goal
+
+Everything built so far could only be reached by typing commands into a terminal. The goal of this
+phase is a web page anyone can open — and, crucially, a page that shows *why* an answer should be
+believed, not just the answer.
+
+### The screen is the evidence, not the chat
+
+The operating brief is blunt about this: *"the chat UI is the least differentiating part."* Any
+recipe app can print a paragraph. What this one can do is show, next to every answer, **the exact
+list of facts the AI was allowed to use** and **a verdict on every number it wrote**.
+
+So the page has three parts, in this order of importance:
+
+1. **The headline numbers**, before you ask anything — how many ingredient lines were matched, how
+   accurate that matching is, how many made-up numbers the checker catches, and how few recipes
+   are fully weighed. That last one is a limitation sitting beside three achievements, on purpose.
+2. **The answer.**
+3. **The ledger** — one card per recipe the answer was allowed to draw on, each showing its
+   calories *with* how many ingredients were actually weighed, its cost (as "at least $X" when
+   only some ingredients are priced), its dietary tags, and its trust score.
+
+And a green bar between the answer and the ledger: *"Guardrail PASS — 31 numeric claims checked,
+every one traced back to the data below."*
+
+### Nothing appears on screen until it has been checked
+
+Most AI apps stream the answer word by word, because waiting feels bad. This one deliberately does
+not. The checker needs the *complete* answer before it can verify anything, and showing text that
+is then retracted is worse than making someone wait.
+
+Instead the wait shows which step is running: *reading the question → searching the warehouse →
+writing and checking the answer*. That is also the most interesting thing we could put there,
+because the timings make the argument for us. A measured question:
+
+| step | who does it | time |
+|---|---|---|
+| read the question into a search filter | Claude | 4,070 ms |
+| **search the warehouse** | **SQL, no AI** | **38 ms** |
+| write the answer, then check every number in it | Claude, then code | 8,259 ms |
+
+**The step that decides what may be said takes 38 milliseconds; the two AI calls take twelve
+seconds between them.** Retrieval on its own is a median of 23 ms — the 38 above includes
+packaging the results. The AI never chooses the facts, and the cheapest part of the system is the
+part doing the choosing.
+
+### The first design was bad, and looking at it was the only way to find out
+
+The first version passed every test and looked terrible. More than half the opening screen was
+blank, and the loudest thing on the page was eight grey "Known limitations" boxes — the most
+defensive part of the product shouting at a first-time visitor, while the headline metrics
+appeared nowhere.
+
+**No test could have caught this.** The tests check what words are on the page, not whether the
+page is worth looking at. It took a screenshot. The rebuild moved the metrics to the top, moved
+the limitations to their own tab, and filled the empty space with the four-step explanation.
+
+### Two bugs that only a picture could find
+
+- **A table crashed the whole page.** The standard way to draw a table in this framework routes
+  the data through two other libraries, and on the installed versions that combination
+  **crashed the program outright** — not an error message, a hard crash that no error handling can
+  catch. Replaced with a plain text table. Nothing on the page is larger than eight rows, so the
+  heavy machinery was buying nothing and risking everything.
+- **Dollar amounts were disappearing.** The page framework treats text between two dollar signs as
+  a mathematical formula. So *"comes to $33.65 total, leaving $16.35 of your $50 budget"* rendered
+  as an italic equation with the amounts swallowed. Cost is the figure this app quotes most often,
+  and the bug only triggers when two amounts land in the same paragraph — so it was invisible on
+  one tab and obvious on another. It would have shipped.
+
+### The app needs almost none of the machinery that built the data
+
+The matching pipeline needs a local AI model, which drags in a 502 MB numerical library. The
+*serving* side — search the data, ask Claude, check the numbers — imports exactly three outside
+packages and never loads a model at all.
+
+Splitting them apart took an install from **1.5 GB down to 357 MB**, which matters because that is
+what has to be uploaded to a server every time we deploy.
+
+### The data cannot go in the repository, and that shapes the deployment
+
+The finished data file is 8 MB — small enough to commit. But it contains 112,463 original
+ingredient lines and 15,000 recipe titles from a dataset distributed under terms you have to
+accept. Publishing it would be redistributing someone else's data.
+
+That one fact rules out the free hosting options, which all require a public repository, and it
+means the data has to be added to the container at build time on the machine that already has it.
+It is also why the plan keeps the pipeline local: the pipeline is a *batch job*, not a service. It
+runs, produces an 8 MB file, and stops.
+
+### What we measured
+
+| | |
+|---|---|
+| Serving install size | **357 MB**, down from 1.5 GB |
+| Tests | **624**, of which 612 run without the recipe data |
+| Time to answer a question | **8–13 seconds** |
+| Deliberate sabotage of the tests | 6 changes made to the app, all 6 caught by the tests |
+
+The 8–13 seconds still misses the under-5-second target from the original plan. We are reporting
+it rather than quietly changing the target.
+
+### What we got wrong
+
+- **The stopwatch started in the wrong place.** The timer began before the connection to Claude was
+  created, so about 13% of the elapsed time fell outside every reported step. A test caught it. The
+  fix — start the clock after — is also more honest, because a web session creates that connection
+  once and reuses it.
+- **We wrote a test that could not fail.** It checked that a blank setting fell back to a default,
+  using a value that was never blank. Spotted before it was committed, but it is the exact failure
+  this project keeps finding in its own test suite.
+- **A sabotage check lied.** One run reported that removing a fix broke nothing — which would have
+  meant a worthless test. The edit had never been applied: the two versions of the file were the
+  same length, so the language runtime reused a cached copy from a second earlier. Every check
+  since disables that cache.
+
+### What is left
+
+Three things, and they need software this machine doesn't have yet: a container image, a hosting
+account to put it on, and a build step that checks the image still works. Until those are done
+there is no public link, and the README says so rather than linking something that doesn't exist.
+
+---
+
 ## What gets added here next
 
-Phase 5 (the web app and deployment). It will add a section in the same shape:
-*goal → what we built → decisions and why → what we measured → what we got wrong*.
+The rest of Phase 5 — packaging the app into a container, deploying it, and the review that
+re-checks every number in the section above.
